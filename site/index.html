@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Survey Dictionary</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='1' y='9' width='3' height='6' rx='1' fill='%232a78d6'/><rect x='6.5' y='4' width='3' height='11' rx='1' fill='%232a78d6'/><rect x='12' y='1' width='3' height='14' rx='1' fill='%232a78d6'/></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>Survey Dictionary</h1>
+    <p class="sub" id="stats">Loading…</p>
+  </div>
+  <div class="controls">
+    <input id="q" type="search" placeholder="Search question wording or variable name, e.g. trust parliament" autocomplete="off" autofocus>
+    <select id="prog" aria-label="Survey programme"><option value="">All programmes</option></select>
+    <select id="sort" aria-label="Sort results">
+      <option value="rel">Best match</option>
+      <option value="n">Most datasets</option>
+      <option value="nc">Most countries</option>
+    </select>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="results" aria-label="Search results">
+    <div class="results-head" id="resultsHead"></div>
+    <ol id="results"></ol>
+    <button id="more" class="btn ghost" hidden>Show more</button>
+  </section>
+
+  <section class="detail" id="detail" aria-live="polite">
+    <div class="empty">
+      <h2>Search the question labels</h2>
+      <p>Type a keyword to search every variable label across all survey programmes, countries and years. Select a question to see where it was asked and its answer distributions.</p>
+      <p class="muted">Questions are grouped by normalised label text: lower case, with punctuation and leading question numbers such as “Q8.” or “QA11B” removed. The same concept worded differently is therefore listed separately.</p>
+    </div>
+  </section>
+</main>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

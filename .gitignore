@@ -1,0 +1,6 @@
+# Built data is hosted in the GCS bucket, not in git (rebuild with build_data.R, upload with deploy_data.ps1)
+site/data/
+.Rhistory
+.RData
+.Rproj.user/
+.claude/
