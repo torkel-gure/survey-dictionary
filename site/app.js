@@ -14,6 +14,7 @@ const fmt = n => n == null ? "–" : Number(n).toLocaleString("en-US");
 const S = {
   meta: null, idx: null, hay: null,
   hits: [], shown: 0, active: null,
+  applied: { prog: "", sort: "rel" },   // filter/sort in effect (the selects only count after "Apply filter")
   shards: new Map(),
   occ: [],            // occurrences of the active question
   sel: [],            // selected occurrence keys (distribution panel)
@@ -61,8 +62,7 @@ function highlight(text, terms) {
 /* ---------- search ---------- */
 function runSearch() {
   const q = $("#q").value.trim().toLowerCase();
-  const prog = $("#prog").value;
-  const sort = $("#sort").value;
+  const { prog, sort } = S.applied;
   const { idx } = S;
   const terms = q.split(/\s+/).filter(Boolean);
   const pi = prog === "" ? -1 : +prog;
@@ -86,8 +86,34 @@ function runSearch() {
   }
   S.hits = hits; S.shown = 0; S.terms = terms;
   $("#results").innerHTML = "";
-  $("#resultsHead").textContent = `${fmt(hits.length)} question${hits.length === 1 ? "" : "s"}${q || prog ? " match" : ""}`;
+  const where = prog ? ` in ${S.meta.progs[+prog][0]}` : "";
+  $("#resultsHead").textContent = `${fmt(hits.length)} question${hits.length === 1 ? "" : "s"}${q ? " match" : ""}${where}`;
   renderMore();
+}
+
+/* ---------- filters (applied with the button) ---------- */
+const SORT_LABELS = { rel: "Best match", n: "Most datasets", nc: "Most countries" };
+const isDirty = () => $("#prog").value !== S.applied.prog || $("#sort").value !== S.applied.sort;
+
+function applyFilters() {
+  S.applied = { prog: $("#prog").value, sort: $("#sort").value };
+  runSearch(); updateHash(); renderActive();
+}
+
+function renderActive() {
+  const dirty = isDirty();
+  $("#apply").disabled = !dirty;
+  $("#filters").classList.toggle("dirty", dirty);
+  const { prog, sort } = S.applied;
+  const chips = [];
+  if (prog) {
+    const [code, name] = S.meta.progs[+prog];
+    chips.push(`<span class="fchip">Programme: <b>${esc(code)}</b> <span class="muted">${esc(name)}</span><button type="button" data-clear="prog" aria-label="Remove programme filter">×</button></span>`);
+  }
+  if (sort !== "rel") chips.push(`<span class="fchip">Sorted by: <b>${SORT_LABELS[sort]}</b><button type="button" data-clear="sort" aria-label="Reset sorting">×</button></span>`);
+  $("#active").innerHTML =
+    (chips.length ? `<span>Active:</span>${chips.join("")}` : "") +
+    (dirty ? `<span class="pending">Changes not applied yet: click “Apply filter”</span>` : "");
 }
 
 function renderMore() {
@@ -102,7 +128,13 @@ function renderMore() {
   }).join("");
   $("#results").insertAdjacentHTML("beforeend", html);
   S.shown += slice.length;
-  $("#more").hidden = S.shown >= S.hits.length;
+  const total = S.hits.length, left = total - S.shown;
+  $("#more").hidden = left <= 0;
+  $("#more").textContent = `Show ${fmt(Math.min(PAGE, left))} more (${fmt(S.shown)} of ${fmt(total)} shown)`;
+  $("#allShown").hidden = left > 0;
+  $("#allShown").textContent = total === 0
+    ? "No questions match. Try fewer or shorter words, or remove the programme filter."
+    : `All ${fmt(total)} result${total === 1 ? "" : "s"} shown`;
 }
 
 /* ---------- question detail ---------- */
@@ -296,7 +328,8 @@ function updateHash() {
   const p = new URLSearchParams();
   const q = $("#q").value.trim();
   if (q) p.set("s", q);
-  if ($("#prog").value) p.set("p", S.meta.progs[+$("#prog").value][0]);
+  if (S.applied.prog) p.set("p", S.meta.progs[+S.applied.prog][0]);
+  if (S.applied.sort !== "rel") p.set("o", S.applied.sort);
   if (S.active != null) p.set("q", S.active);
   history.replaceState(null, "", "#" + p.toString());
 }
@@ -304,6 +337,8 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   if (p.get("s")) $("#q").value = p.get("s");
   if (p.get("p")) { const i = S.meta.progs.findIndex(x => x[0] === p.get("p")); if (i >= 0) $("#prog").value = i; }
+  if (SORT_LABELS[p.get("o")]) $("#sort").value = p.get("o");
+  S.applied = { prog: $("#prog").value, sort: $("#sort").value };
   return p.get("q") != null ? +p.get("q") : null;
 }
 
@@ -323,8 +358,16 @@ function tipAt(e, html) {
 function bind() {
   let t;
   $("#q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { runSearch(); updateHash(); }, 120); });
-  $("#prog").addEventListener("change", () => { runSearch(); updateHash(); });
-  $("#sort").addEventListener("change", runSearch);
+  $("#filters").addEventListener("change", renderActive);
+  $("#filters").addEventListener("submit", e => { e.preventDefault(); applyFilters(); });
+  $("#active").addEventListener("click", e => {
+    const b = e.target.closest("[data-clear]");
+    if (!b) return;
+    if (b.dataset.clear === "prog") $("#prog").value = ""; else $("#sort").value = "rel";
+    applyFilters();
+  });
+  // keep the sticky results panel below the header, whatever height the header wraps to
+  new ResizeObserver(() => document.documentElement.style.setProperty("--head-h", $(".top").offsetHeight + "px")).observe($(".top"));
   $("#more").addEventListener("click", renderMore);
   const pick = e => { const li = e.target.closest("li[data-g]"); if (li) openQuestion(+li.dataset.g); };
   $("#results").addEventListener("click", pick);
@@ -371,6 +414,7 @@ function bind() {
     bind();
     const q = readHash();
     runSearch();
+    renderActive();
     if (q != null && q < idx.label.length) openQuestion(q);
   } catch (e) {
     $("#stats").innerHTML = `<span class="err">Could not load data (${esc(e.message)}). Serve this folder over HTTP; opening index.html directly from disk does not work.</span>`;

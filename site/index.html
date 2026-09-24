@@ -14,21 +14,37 @@
     <p class="sub" id="stats">Loading…</p>
   </div>
   <div class="controls">
-    <input id="q" type="search" placeholder="Search question wording or variable name, e.g. trust parliament" autocomplete="off" autofocus>
-    <select id="prog" aria-label="Survey programme"><option value="">All programmes</option></select>
-    <select id="sort" aria-label="Sort results">
-      <option value="rel">Best match</option>
-      <option value="n">Most datasets</option>
-      <option value="nc">Most countries</option>
-    </select>
+    <label class="field search">
+      <span>Search</span>
+      <input id="q" type="search" placeholder="Question wording or variable name, e.g. trust parliament" autocomplete="off" autofocus>
+    </label>
+    <form class="filters" id="filters">
+      <label class="field">
+        <span>Filter: survey programme</span>
+        <select id="prog"><option value="">All programmes</option></select>
+      </label>
+      <label class="field">
+        <span>Sort results by</span>
+        <select id="sort">
+          <option value="rel">Best match</option>
+          <option value="n">Most datasets</option>
+          <option value="nc">Most countries</option>
+        </select>
+      </label>
+      <button id="apply" type="submit" class="btn primary" disabled>Apply filter</button>
+    </form>
   </div>
+  <div class="active" id="active" aria-live="polite"></div>
 </header>
 
 <main class="layout">
   <section class="results" aria-label="Search results">
     <div class="results-head" id="resultsHead"></div>
     <ol id="results"></ol>
-    <button id="more" class="btn ghost" hidden>Show more</button>
+    <div class="results-foot">
+      <button id="more" class="btn" hidden>Show more</button>
+      <p id="allShown" class="muted" hidden></p>
+    </div>
   </section>
 
   <section class="detail" id="detail" aria-live="polite">
