@@ -91,8 +91,9 @@ vars[, key := norm_label(label)]
 vars[no_label | key == "", key := paste0("∅ ", ftab$prog[fid + 1L], " ", tolower(var))]
 vars[no_label, label := NA_character_]
 
+# n = datasets asking the question (a dataset can hold several variables with the same label)
 groups <- vars[, .(
-  n = .N,
+  n = uniqueN(fid),
   display = {
     l <- label[!is.na(label)]
     if (length(l)) names(which.max(table(l))) else paste0("(no label) ", var[1])
@@ -100,12 +101,19 @@ groups <- vars[, .(
   nc = uniqueN(ftab$cidx[fid + 1L]),
   y0 = min(as.integer(substr(ftab$year[fid + 1L], 1, 4)), na.rm = TRUE),
   y1 = max(as.integer(substr(ftab$year[fid + 1L], 1, 4)), na.rm = TRUE),
-  progs = paste(sort(unique(ftab$pidx[fid + 1L])), collapse = ","),
   varnames = paste(head(names(sort(table(tolower(var)), decreasing = TRUE)), 6), collapse = " ")
 ), by = key]
+# Per-programme stats for each question: [programme, datasets, countries, first year, last year]
+vars[, `:=`(p = ftab$pidx[fid + 1L], c = ftab$cidx[fid + 1L], y = as.integer(substr(ftab$year[fid + 1L], 1, 4)))]
+pstats <- vars[, .(n = uniqueN(fid), nc = uniqueN(c), y0 = min(y, na.rm = TRUE), y1 = max(y, na.rm = TRUE)), by = .(key, p)]
+setorder(pstats, key, -n)
+pstats <- pstats[, .(progs = paste0("[", p, ",", n, ",", nc, ",", y0, ",", y1, "]", collapse = ",")), by = key]
+groups[pstats, progs := i.progs, on = "key"]
+vars[, c("p", "c", "y") := NULL]
 setorder(groups, -n, display)
 groups[, gid := .I - 1L]
 vars[groups, gid := i.gid, on = "key"]
+ftab[, nvars := vars[, .N, by = fid][ftab, on = "fid", N]]
 message(nrow(vars), " variables in ", nrow(groups), " distinct questions")
 
 # 3. Distributions -------------------------------------------------------------
@@ -201,7 +209,7 @@ meta <- paste0(
   "{\"built\":", jstr(format(Sys.time(), "%Y-%m-%d %H:%M")),
   ",\"progs\":", arr(paste0("[", jstr(progs$prog), ",", jstr(progs$name), ",", progs$nfiles, "]")),
   ",\"countries\":", arr(paste0("[", jstr(ctys$iso), ",", jstr(ctys$country), "]")),
-  ",\"files\":", arr(paste0("[", ftab$pidx, ",", ftab$cidx, ",", jstr(ftab$year), "]")), "}"
+  ",\"files\":", arr(paste0("[", ftab$pidx, ",", ftab$cidx, ",", jstr(ftab$year), ",", ftab$nvars, "]")), "}"
 )
 write_gz(meta, file.path(out_dir, "meta.json.gz"))
 

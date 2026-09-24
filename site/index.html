@@ -13,16 +13,31 @@
     <h1>Survey Dictionary</h1>
     <p class="sub" id="stats">Loading…</p>
   </div>
-  <div class="controls">
+  <nav class="tabs" aria-label="Views">
+    <a href="#" id="tabSearch">Search all questions</a>
+    <a href="#v=programmes" id="tabProgs">Survey programmes</a>
+  </nav>
+  <div class="context" id="context" hidden></div>
+  <div class="controls" id="controls">
     <label class="field search">
-      <span>Search</span>
+      <span id="qLabel">Search</span>
       <input id="q" type="search" placeholder="Question wording or variable name, e.g. trust parliament" autocomplete="off" autofocus>
     </label>
     <form class="filters" id="filters">
-      <label class="field">
-        <span>Filter: survey programme</span>
-        <select id="prog"><option value="">All programmes</option></select>
-      </label>
+      <div class="field" id="progField">
+        <span>Filter: survey programmes</span>
+        <div class="msel">
+          <button type="button" id="progBtn" class="msel-btn" aria-haspopup="true" aria-expanded="false">All programmes</button>
+          <div class="msel-pop" id="progPop" hidden>
+            <div class="msel-actions">
+              <span class="muted">Tick one or more</span>
+              <button type="button" class="btn small" data-msel="none">Clear</button>
+              <button type="button" class="btn small" data-msel="all">Select all</button>
+            </div>
+            <ul id="progList" role="listbox" aria-multiselectable="true"></ul>
+          </div>
+        </div>
+      </div>
       <label class="field">
         <span>Sort results by</span>
         <select id="sort">
@@ -37,7 +52,7 @@
   <div class="active" id="active" aria-live="polite"></div>
 </header>
 
-<main class="layout">
+<main class="layout" id="layout">
   <section class="results" aria-label="Search results">
     <div class="results-head" id="resultsHead"></div>
     <ol id="results"></ol>
@@ -46,15 +61,10 @@
       <p id="allShown" class="muted" hidden></p>
     </div>
   </section>
-
-  <section class="detail" id="detail" aria-live="polite">
-    <div class="empty">
-      <h2>Search the question labels</h2>
-      <p>Type a keyword to search every variable label across all survey programmes, countries and years. Select a question to see where it was asked and its answer distributions.</p>
-      <p class="muted">Questions are grouped by normalised label text: lower case, with punctuation and leading question numbers such as “Q8.” or “QA11B” removed. The same concept worded differently is therefore listed separately.</p>
-    </div>
-  </section>
+  <section class="detail" id="detail" aria-live="polite"></section>
 </main>
+
+<main class="prog-index" id="progIndex" hidden></main>
 
 <div id="tip" class="tip" role="tooltip" hidden></div>
 <script src="config.js"></script>

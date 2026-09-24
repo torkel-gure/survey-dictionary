@@ -3,9 +3,17 @@
 A searchable dictionary of every variable in the survey-country-year overview files
 (`../Existing survey data/Overview files/*.RData`). Colleagues can:
 
-1. search all question labels and variable names by keyword (optionally within one programme),
+1. search all question labels and variable names by keyword, optionally filtered to one or
+   more survey programmes (the checklist under "Filter: survey programmes", applied with
+   "Apply filter"),
 2. open a question to see **where it was asked**: a country × year coverage grid plus a table of every dataset,
-3. click datasets or grid cells to compare **answer distributions** side by side.
+3. click datasets or grid cells to compare **answer distributions** side by side,
+4. browse by programme (**Survey programmes** tab): one card per programme, and a programme page
+   with its datasets by country × year and the same search / question / distribution tools,
+   limited to that programme.
+
+Counts: "datasets" are distinct survey-country-year files. One dataset can contain several
+variables with the same label, so the dataset table has one row per variable.
 
 It is a static website: plain HTML/JS with pre-built, gzipped JSON data. There is no server
 process, so it opens quickly and costs almost nothing to host. Search runs in the browser
@@ -72,5 +80,5 @@ The data files are gzipped and the app decompresses them itself, so no special o
 metadata is needed. `meta.json.gz` is served with `no-cache`, and its build stamp versions
 every other data file, so a new upload is visible immediately.
 
-Links are shareable: the URL keeps the search text, programme filter and open question
-(e.g. `index.html#s=trust&q=123`). Question ids change when the data is rebuilt.
+Links are shareable: the URL keeps the view, search text, programme filter, sort order and
+open question (e.g. `#s=trust&p=ESS,WVS&q=123`, `#v=programmes`, `#v=prog&pg=ESS&s=trust`). Question ids change when the data is rebuilt.
