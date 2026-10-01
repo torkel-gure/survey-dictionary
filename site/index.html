@@ -20,10 +20,6 @@
   </nav>
   <div class="context" id="context" hidden></div>
   <div class="controls" id="controls">
-    <label class="field search">
-      <span id="qLabel">Search</span>
-      <input id="q" type="search" placeholder="Question wording or variable name, e.g. trust parliament" autocomplete="off" autofocus>
-    </label>
     <form class="filters" id="filters">
       <div class="field" id="progField">
         <span>Filter: survey programmes</span>
@@ -55,6 +51,12 @@
 
 <main class="layout" id="layout">
   <section class="results" aria-label="Search results">
+    <div class="results-search">
+      <label class="field search">
+        <span id="qLabel">Search</span>
+        <input id="q" type="search" placeholder="Question wording or variable name, e.g. trust parliament" autocomplete="off" autofocus>
+      </label>
+    </div>
     <div class="results-head" id="resultsHead"></div>
     <ol id="results"></ol>
     <div class="results-foot">
