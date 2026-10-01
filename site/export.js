@@ -707,7 +707,7 @@ async function questionSection(D, it, i) {
       const imgs = await distImages(r, it.excludeMissing);
       if (!imgs.length) out.push(new D.Paragraph({ children: [new D.TextRun({ text: "No distribution stored for this variable.", italics: true })] }));
       imgs.forEach((img, k) => out.push(new D.Paragraph({ keepNext: k < imgs.length - 1, spacing: { after: k < imgs.length - 1 ? 0 : 120 },
-        children: [new D.ImageRun({ type: "png", data: img.data, transformation: { width: img.w, height: img.h } })] })));
+        children: [new D.ImageRun({ type: "svg", data: img.svg, fallback: { type: "png", data: img.png }, transformation: { width: img.w, height: img.h } })] })));
     }
   }
   out.push(...sourcesSection(D, occ));
@@ -795,53 +795,91 @@ async function distImages(r, excludeMissing) {
   return out;
 }
 
-async function drawDist(rows, { d, total, histTotal, max, note }) {
+// The chart is laid out once as a list of shapes (bars with rounded corners, text), then rendered
+// as SVG for Word (vector, sharp at any zoom) and as PNG, the fallback Word needs for versions
+// without SVG support.
+const CHART_FONT = '"Times New Roman", Times, serif';
+let measureCtx = null;
+function textWidth(text, size, weight = "normal") {
+  measureCtx ||= document.createElement("canvas").getContext("2d");
+  measureCtx.font = `${weight} ${size}px ${CHART_FONT}`;
+  return measureCtx.measureText(text).width;
+}
+function fitText(text, maxW, size) {
+  if (textWidth(text, size) <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && textWidth(t + "…", size) > maxW) t = t.slice(0, -1);
+  return t + "…";
+}
+
+function layoutDist(rows, { d, total, histTotal, max, note }) {
   const W = 600, rowH = 19, histH = d.h ? 120 : 0;
   const H = 6 + histH + rows.length * rowH + (note ? 20 : 0) + 6;
-  const scale = 2, c = document.createElement("canvas");
-  c.width = W * scale; c.height = H * scale;
-  const g = c.getContext("2d");
-  g.scale(scale, scale);
-  g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
-  const font = (size, w = "normal") => `${w} ${size}px "Times New Roman", Times, serif`;
-  const fit = (text, maxW) => { if (g.measureText(text).width <= maxW) return text; let t = text; while (t.length > 1 && g.measureText(t + "…").width > maxW) t = t.slice(0, -1); return t + "…"; };
+  const shapes = [];
+  const rect = (x, y, w, h, r, fill) => shapes.push({ kind: "rect", x, y, w, h, r, fill });
+  const text = (x, y, s, o) => shapes.push({ kind: "text", x, y, s, size: 11, weight: "normal", style: "normal", fill: "#222", align: "left", baseline: "alphabetic", ...o });
   let y = 6;
   if (d.h) {
     const [lo, hi, bins] = d.h, bmax = Math.max(1, ...bins), bw = W / bins.length, ph = histH - 34;
     bins.forEach((b, i) => {
       const h = Math.max(b ? 1 : 0, ph * b / bmax);
-      g.fillStyle = "#2a78d6";
-      roundRect(g, i * bw + 1, y + ph - h, bw - 2, h, [3, 3, 0, 0]);
+      if (h) rect(i * bw + 1, y + ph - h, bw - 2, h, [3, 3, 0, 0], "#2a78d6");
     });
-    g.fillStyle = "#555"; g.font = font(11);
-    g.textAlign = "left"; g.fillText(num(lo), 0, y + ph + 14);
-    g.textAlign = "right"; g.fillText(num(hi), W, y + ph + 14);
-    g.textAlign = "center"; g.fillText(`Unlabelled numeric values (${fmt(histTotal)} responses, ${pct(histTotal, total)})`, W / 2, y + ph + 14);
+    const ly = y + ph + 14, o = { fill: "#555" };
+    text(0, ly, num(lo), o);
+    text(W, ly, num(hi), { ...o, align: "right" });
+    text(W / 2, ly, `Unlabelled numeric values (${fmt(histTotal)} responses, ${pct(histTotal, total)})`, { ...o, align: "center" });
     y += histH;
   }
   const labelW = 250, barX = labelW + 10, pctW = 95, barW = W - barX - pctW - 8;
-  g.textBaseline = "middle";
   for (const x of rows) {
-    const cy = y + rowH / 2;
-    g.textAlign = "left"; g.font = font(12.5); g.fillStyle = "#222";
+    const cy = y + rowH / 2, mid = { baseline: "middle" };
     const name = x.l && x.l !== x.v ? `${x.v}  ${x.l}` : String(x.v);
-    g.fillText(fit(name, labelW), 0, cy);
-    const bw2 = barW * x.n / max;
-    g.fillStyle = x.miss ? "#b9b8b2" : "#2a78d6";
-    if (x.n) roundRect(g, barX, cy - 6.5, Math.max(1.5, bw2), 13, [0, 3, 3, 0]);
-    g.textAlign = "right"; g.fillStyle = "#111"; g.font = font(12.5, "bold");
-    g.fillText(pct(x.n, total), W - 46, cy);
-    g.font = font(11); g.fillStyle = "#666";
-    g.fillText(fmt(x.n), W, cy);
+    text(0, cy, fitText(name, labelW, 12.5), { ...mid, size: 12.5 });
+    if (x.n) rect(barX, cy - 6.5, Math.max(1.5, barW * x.n / max), 13, [0, 3, 3, 0], x.miss ? "#b9b8b2" : "#2a78d6");
+    text(W - 46, cy, pct(x.n, total), { ...mid, size: 12.5, weight: "bold", fill: "#111", align: "right" });
+    text(W, cy, fmt(x.n), { ...mid, fill: "#666", align: "right" });
     y += rowH;
   }
-  if (note) { g.textAlign = "left"; g.font = font(11, "italic"); g.fillStyle = "#666"; g.fillText(`${fmt(d.o)} responses in other, less frequent values are not shown.`, 0, y + 10); }
-  const blob = await new Promise(res => c.toBlob(res, "image/png"));
-  return { data: new Uint8Array(await blob.arrayBuffer()), w: W, h: H };
+  if (note) text(0, y + 10, `${fmt(d.o)} responses in other, less frequent values are not shown.`, { baseline: "middle", style: "italic", fill: "#666" });
+  return { W, H, shapes };
 }
 
-function roundRect(g, x, y, w, h, r) {
-  g.beginPath();
-  if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h);
-  g.fill();
+// rectangle path with per-corner radii [top-left, top-right, bottom-right, bottom-left]
+function roundedPath(x, y, w, h, r) {
+  const [tl, tr, br, bl] = r.map(v => Math.max(0, Math.min(v, w / 2, h / 2)));
+  return `M${x + tl},${y}H${x + w - tr}${tr ? `A${tr},${tr} 0 0 1 ${x + w},${y + tr}` : ""}V${y + h - br}${br ? `A${br},${br} 0 0 1 ${x + w - br},${y + h}` : ""}`
+    + `H${x + bl}${bl ? `A${bl},${bl} 0 0 1 ${x},${y + h - bl}` : ""}V${y + tl}${tl ? `A${tl},${tl} 0 0 1 ${x + tl},${y}` : ""}Z`;
+}
+
+function distSvg({ W, H, shapes }) {
+  const r2 = v => Math.round(v * 100) / 100;
+  const xml = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const anchor = { left: "start", center: "middle", right: "end" };
+  const body = shapes.map(s => s.kind === "rect"
+    ? `<path d="${roundedPath(r2(s.x), r2(s.y), r2(s.w), r2(s.h), s.r)}" fill="${s.fill}"/>`
+    : `<text x="${r2(s.x)}" y="${r2(s.y)}" font-size="${s.size}"${s.weight !== "normal" ? ` font-weight="${s.weight}"` : ""}${s.style !== "normal" ? ` font-style="${s.style}"` : ""} fill="${s.fill}" text-anchor="${anchor[s.align]}"${s.baseline === "middle" ? ` dominant-baseline="central"` : ""}>${xml(s.s)}</text>`).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family='${CHART_FONT}'><rect width="${W}" height="${H}" fill="#ffffff"/>${body}</svg>`;
+}
+
+async function distPng({ W, H, shapes }) {
+  const scale = 3, c = document.createElement("canvas");
+  c.width = W * scale; c.height = H * scale;
+  const g = c.getContext("2d");
+  g.scale(scale, scale);
+  g.fillStyle = "#ffffff"; g.fillRect(0, 0, W, H);
+  for (const s of shapes) {
+    g.fillStyle = s.fill;
+    if (s.kind === "rect") { g.fill(new Path2D(roundedPath(s.x, s.y, s.w, s.h, s.r))); continue; }
+    g.font = `${s.style} ${s.weight} ${s.size}px ${CHART_FONT}`;
+    g.textAlign = s.align; g.textBaseline = s.baseline;
+    g.fillText(s.s, s.x, s.y);
+  }
+  const blob = await new Promise(res => c.toBlob(res, "image/png"));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function drawDist(rows, opts) {
+  const chart = layoutDist(rows, opts);
+  return { svg: new TextEncoder().encode(distSvg(chart)), png: await distPng(chart), w: chart.W, h: chart.H };
 }
