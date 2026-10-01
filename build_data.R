@@ -86,6 +86,19 @@ ftab[, wave := mapply(wave_of, stem, year, USE.NAMES = FALSE)]
 ftab[url %in% c("", "NA"), url := NA_character_]
 ftab[src %in% c("", "NA"), src := NA_character_]
 
+# Stale files: one source file gives at most one overview per country and year (waves come from
+# different source files or years). Two overviews for the same source file, country and year mean
+# an old file was left next to a regenerated one (e.g. EB_DEU_2014 next to EB_DEU_wave_82.4_2014),
+# which would count every question twice. Stop, unless SD_ALLOW_DUPLICATES=1.
+dups <- ftab[!is.na(src)][, if (.N > 1) .(files = paste(stem, collapse = ", ")), by = .(prog, src, iso, year)]
+if (nrow(dups)) {
+  message(nrow(dups), " source file/country/year combinations have more than one overview file:")
+  for (i in seq_len(min(nrow(dups), 30))) message("  ", dups$src[i], " ", dups$iso[i], " ", dups$year[i], ": ", dups$files[i])
+  if (nrow(dups) > 30) message("  ... and ", nrow(dups) - 30, " more")
+  if (Sys.getenv("SD_ALLOW_DUPLICATES") != "1")
+    stop("Remove the outdated overview files (or set SD_ALLOW_DUPLICATES=1 to build anyway).", call. = FALSE)
+}
+
 progs <- ftab[, .(name = names(sort(table(survey), decreasing = TRUE))[1], nfiles = .N), by = prog][order(prog)]
 ctys <- unique(ftab[, .(iso, country)], by = "iso")[order(country)]
 ftab[, pidx := match(prog, progs$prog) - 1L]
