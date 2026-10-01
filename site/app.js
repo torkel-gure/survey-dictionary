@@ -49,10 +49,25 @@ function getShard(s) {
 }
 
 /* ---------- helpers ---------- */
+// meta.files rows: [programme, country, year, variables, wave, source file, survey url, overview file name]
 const fileInfo = fid => {
-  const [p, c, y, nv] = S.meta.files[fid];
-  return { pidx: p, prog: S.meta.progs[p][0], progName: S.meta.progs[p][1], iso: S.meta.countries[c][0], country: S.meta.countries[c][1], year: y, nvars: nv };
+  const [p, c, y, nv, wave, src, url, stem] = S.meta.files[fid];
+  return {
+    fid, pidx: p, prog: S.meta.progs[p][0], progName: S.meta.progs[p][1], iso: S.meta.countries[c][0], country: S.meta.countries[c][1],
+    year: y, wave, yw: wave ? `${y} (${wave})` : y, nvars: nv, src, url: fixUrl(url), stem,
+  };
 };
+// survey urls come as full links, bare domains ("www.asianbarometer.org"), DOIs ("doi:10.4232/1.12050",
+// "DOI: 10.21338/ess9e03_2"), sometimes with trailing punctuation, or as "Not available"
+function fixUrl(u) {
+  u = (u || "").trim().replace(/[\s,;.]+$/, "");
+  if (!u || /^(not available|n\/?a|none|-)$/i.test(u)) return null;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (/^doi:\s*/i.test(u)) return "https://doi.org/" + u.replace(/^doi:\s*/i, "");
+  if (/^10\.\d{4,}\//.test(u)) return "https://doi.org/" + u;
+  return "https://" + u.replace(/^\/+/, "");
+}
+const docLink = (url, text = "Survey documentation ↗") => url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>` : `<span class="muted">no link available</span>`;
 const occKey = o => `${o[0]}|${o[1]}`;
 const progCode = p => S.meta.progs[p][0];
 const progHref = p => `#v=prog&pg=${encodeURIComponent(progCode(p))}`;
@@ -132,7 +147,7 @@ function renderMore() {
       const progs = idx.progs[i].map(([p]) => scSet.has(p) ? `<b class="psel">${esc(progCode(p))}</b>` : esc(progCode(p))).join(", ");
       meta = `${fmt(idx.n[i])} datasets · ${idx.nc[i]} ${idx.nc[i] === 1 ? "country" : "countries"} · ${yrs(idx.y0[i], idx.y1[i])} · ${progs}`;
     }
-    return `<li data-g="${i}" class="${i === S.active ? "active" : ""}" tabindex="0">
+    return `<li data-g="${i}" class="${i === S.active ? "active" : ""}" tabindex="0">${markBtn(i)}
       <div class="lbl">${highlight(idx.label[i], S.terms)}</div><div class="meta">${meta}</div></li>`;
   }).join("");
   $("#results").insertAdjacentHTML("beforeend", html);
@@ -202,7 +217,7 @@ const closePop = () => { $("#progPop").hidden = true; $("#progBtn").setAttribute
 /* ---------- views & URL state (shareable links) ---------- */
 function updateHash() {
   const p = new URLSearchParams();
-  if (S.view === "programmes") p.set("v", "programmes");
+  if (S.view === "programmes" || S.view === "export") p.set("v", S.view);
   else {
     if (S.view === "prog") { p.set("v", "prog"); p.set("pg", progCode(S.pg)); }
     const q = $("#q").value.trim();
@@ -218,7 +233,7 @@ function updateHash() {
 function route() {
   const p = new URLSearchParams(location.hash.slice(1));
   const codeIdx = c => S.meta.progs.findIndex(x => x[0] === c);
-  let view = p.get("v") === "programmes" ? "programmes" : p.get("v") === "prog" ? "prog" : "search";
+  let view = ["programmes", "prog", "export"].includes(p.get("v")) ? p.get("v") : "search";
   let pg = view === "prog" ? codeIdx(p.get("pg")) : null;
   if (view === "prog" && pg < 0) view = "programmes";
   S.view = view; S.pg = pg;
@@ -230,12 +245,15 @@ function route() {
   S.active = null; S.occAll = []; S.occ = []; S.sel = []; S.showAll = false;
   closePop();
 
+  const pageView = view === "programmes" || view === "export";   // full-width pages without the search layout
   $("#tabSearch").classList.toggle("on", view === "search");
-  $("#tabProgs").classList.toggle("on", view !== "search");
-  $("#controls").hidden = view === "programmes";
-  $("#active").hidden = view === "programmes";
-  $("#layout").hidden = view === "programmes";
+  $("#tabProgs").classList.toggle("on", view === "programmes" || view === "prog");
+  $("#tabExport").classList.toggle("on", view === "export");
+  $("#controls").hidden = pageView;
+  $("#active").hidden = pageView;
+  $("#layout").hidden = pageView;
   $("#progIndex").hidden = view !== "programmes";
+  $("#exportView").hidden = view !== "export";
   $("#progField").hidden = view !== "search";
   const ctx = $("#context");
   ctx.hidden = view !== "prog";
@@ -246,6 +264,7 @@ function route() {
   } else $("#qLabel").textContent = "Search";
 
   if (view === "programmes") { renderProgIndex(); window.scrollTo(0, 0); return; }
+  if (view === "export") { renderExport(); window.scrollTo(0, 0); return; }
   runSearch(); renderActive();
   const q = p.get("q");
   if (q != null && +q < S.idx.label.length) openQuestion(+q); else renderHome();
@@ -274,7 +293,7 @@ function renderProgIndex() {
         <div class="pc-code">${esc(code)}</div>
         <div class="pc-name">${esc(name)}</div>
         <div class="pc-stats">
-          <span><b>${fmt(st.files)}</b> datasets</span><span><b>${st.countries.size}</b> countries</span>
+          <span><b>${fmt(st.files)}</b> datasets</span><span><b>${st.countries.size}</b> ${st.countries.size === 1 ? "country" : "countries"}</span>
           <span><b>${yrs(st.y0, st.y1)}</b></span><span><b>${fmt(st.nq)}</b> questions</span>
         </div></a>`;
     }).join("")}</div>`;
@@ -299,21 +318,27 @@ function renderProgOverview() {
   const byC = new Map();
   for (const f of files) {
     if (!byC.has(f.iso)) byC.set(f.iso, { name: f.country, cells: new Map() });
-    byC.get(f.iso).cells.set(f.year, f);
+    const cells = byC.get(f.iso).cells;
+    if (!cells.has(f.year)) cells.set(f.year, []);
+    cells.get(f.year).push(f);   // several datasets when a programme fielded several waves that year
   }
   const rows = [...byC.values()].sort((a, b) => a.name.localeCompare(b.name));
   const grid = `<table class="cov"><thead><tr><th></th>${years.map(y => `<th>${esc(y)}</th>`).join("")}</tr></thead><tbody>${rows.map(c =>
     `<tr><th title="${esc(c.name)}">${esc(c.name)}</th>${years.map(y => {
-      const f = c.cells.get(y);
-      return f ? `<td class="c3" data-tip="${esc(`${c.name} ${y}: ${fmt(f.nvars)} variables`)}"></td>` : "<td></td>";
+      const list = c.cells.get(y);
+      if (!list) return "<td></td>";
+      const tip = `${c.name} ${y}: ` + list.map(f => `${f.wave ? f.wave + ": " : ""}${fmt(f.nvars)} variables (${f.src || "unknown file"})`).join("; ");
+      return `<td class="c${Math.min(3, list.length)}" data-tip="${esc(tip)}"></td>`;
     }).join("")}</tr>`).join("")}</tbody></table>`;
+  const waves = files.filter(f => f.wave).length;
+  const docs = docsList(files);
   $("#detail").innerHTML = `
     <div class="card">
       <div class="eyebrow">Survey programme</div>
       <h2 class="qtitle">${esc(name)}</h2>
       <div class="kpis">
         <div class="kpi"><b>${fmt(st.files)}</b><span>datasets</span></div>
-        <div class="kpi"><b>${st.countries.size}</b><span>countries</span></div>
+        <div class="kpi"><b>${st.countries.size}</b><span>${st.countries.size === 1 ? "country" : "countries"}</span></div>
         <div class="kpi"><b>${yrs(st.y0, st.y1)}</b><span>${years.length} survey years</span></div>
         <div class="kpi"><b>${fmt(st.nq)}</b><span>distinct questions</span></div>
         <div class="kpi"><b>${fmt(st.nvars)}</b><span>variables in total</span></div>
@@ -321,9 +346,35 @@ function renderProgOverview() {
       <p class="muted" style="margin:12px 0 0">Search or browse this programme’s questions on the left. Select one to see where it was asked and its answer distributions.</p>
     </div>
     <div class="card">
-      <h3>Datasets by country and year <span class="muted" style="font-weight:400">Hover a cell to see its number of variables</span></h3>
+      <h3>Datasets by country and year <span class="muted" style="font-weight:400">Hover a cell to see its source file and number of variables</span></h3>
       <div class="cov-wrap">${grid}</div>
-      <div class="legend"><span><i style="background:var(--cell-3)"></i>dataset available</span><span><i style="background:var(--surface-2)"></i>none</span></div>
+      <div class="legend"><span><i style="background:var(--cell-1)"></i>1 dataset</span><span><i style="background:var(--cell-2)"></i>2</span><span><i style="background:var(--cell-3)"></i>3 or more (several waves in a year)</span><span><i style="background:var(--surface-2)"></i>none</span></div>
+      ${waves ? `<p class="note">${fmt(waves)} of this programme’s datasets are survey waves. Waves fielded in the same year are kept as separate datasets.</p>` : ""}
+    </div>
+    ${docs}`;
+}
+
+// "Survey documentation" card: the distinct survey links of some datasets, with what they cover
+function docsList(rows) {
+  const byUrl = new Map();
+  for (const r of rows) {
+    const k = r.url || "";
+    if (!byUrl.has(k)) byUrl.set(k, { url: r.url, progs: new Set(), files: new Set(), years: new Set() });
+    const d = byUrl.get(k);
+    d.progs.add(r.prog); if (r.src) d.files.add(r.src); d.years.add(r.year);
+  }
+  const list = [...byUrl.values()].sort((a, b) => [...a.progs][0].localeCompare([...b.progs][0]) || Math.min(...[...a.years].map(Number)) - Math.min(...[...b.years].map(Number)));
+  const item = d => {
+    const ys = [...d.years].map(Number).filter(Boolean).sort((a, b) => a - b);
+    return `<li>${d.url ? docLink(d.url, d.url) : `<span class="muted">No documentation link recorded</span>`}
+      <span class="muted"> · ${esc([...d.progs].join(", "))}${ys.length ? " · " + yrs(ys[0], ys[ys.length - 1]) : ""} · ${d.files.size} source file${d.files.size === 1 ? "" : "s"}${d.files.size <= 3 ? ": " + esc([...d.files].join(", ")) : ""}</span></li>`;
+  };
+  const first = list.slice(0, 8), rest = list.slice(8);
+  return `<div class="card">
+      <h3>Survey documentation</h3>
+      <p class="muted" style="margin:0 0 8px">Codebooks and questionnaires, including the exact question wording, are available on the survey websites below. The survey data files themselves are not distributed here.</p>
+      <ul class="docs">${first.map(item).join("")}</ul>
+      ${rest.length ? `<details class="variants"><summary>Show ${rest.length} more link${rest.length === 1 ? "" : "s"}</summary><ul class="docs">${rest.map(item).join("")}</ul></details>` : ""}
     </div>`;
 }
 
@@ -383,11 +434,11 @@ function renderDetail() {
 
   $("#detail").innerHTML = `${back}
     <div class="card">
-      <h2 class="qtitle">${esc(idx.label[g])}</h2>
+      <div class="qhead"><h2 class="qtitle">${esc(idx.label[g])}</h2>${exportToggle(g)}</div>
       ${scopeBar}
       <div class="kpis">
         <div class="kpi"><b>${fmt(nds(occ))}</b><span>datasets</span></div>
-        <div class="kpi"><b>${countries.size}</b><span>countries</span></div>
+        <div class="kpi"><b>${countries.size}</b><span>${countries.size === 1 ? "country" : "countries"}</span></div>
         <div class="kpi"><b>${yrs(years[0], years[years.length - 1])}</b><span>${years.length} survey years</span></div>
         <div class="kpi"><b>${progs.size}</b><span>programme${progs.size === 1 ? "" : "s"}</span></div>
         ${occ.length !== nds(occ) ? `<div class="kpi"><b>${fmt(occ.length)}</b><span>variables</span></div>` : ""}
@@ -396,6 +447,8 @@ function renderDetail() {
       <div class="chips"><span class="chips-lbl">Variables</span>${[...varnames].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([v, n]) => `<span class="chip" title="${n} datasets"><code>${esc(v)}</code></span>`).join("")}</div>
       ${vlist.length > 1 ? `<details class="variants"><summary>${vlist.length} label variants in this group</summary><ul>${vlist.slice(0, 50).map(([l, n]) => `<li>${esc(l)} <span class="muted">(${n})</span></li>`).join("")}</ul></details>` : ""}
     </div>
+
+    ${docsList(occ)}
 
     <div class="card">
       <h3>Where it was asked <span class="muted" style="font-weight:400">Select a cell to view its distribution</span></h3>
@@ -441,13 +494,13 @@ function filteredOcc() {
   if (f) {
     const terms = f.split(/\s+/);
     rows = rows.filter(r => {
-      const h = `${r.prog} ${r.progName} ${r.country} ${r.iso} ${r.year} ${r.o[1]} ${r.o[2] || ""}`.toLowerCase();
+      const h = `${r.prog} ${r.progName} ${r.country} ${r.iso} ${r.year} ${r.wave || ""} ${r.o[1]} ${r.o[2] || ""} ${r.src || ""}`.toLowerCase();
       return terms.every(t => h.includes(t));
     });
   }
   const [k, dir] = S.occSort;
-  const val = r => k === "n" ? (r.o[3] ?? -1) : k === "var" ? r.o[1] : r[k];
-  const ties = r => `${r.prog}|${r.country}|${r.year}`;
+  const val = r => k === "n" ? (r.o[3] ?? -1) : k === "var" ? r.o[1] : (r[k] ?? "");
+  const ties = r => `${r.prog}|${r.country}|${r.year}|${r.wave || ""}`;
   return [...rows].sort((a, b) => {
     const x = val(a), y = val(b);
     const c = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
@@ -458,12 +511,16 @@ function filteredOcc() {
 function renderOccTable() {
   const rows = filteredOcc();
   const selSet = new Set(S.sel);
-  const cols = [["prog", "Programme"], ["country", "Country"], ["year", "Year"], ["var", "Variable"], ["n", "N valid"]];
+  const hasWave = S.occ.some(r => r.wave);
+  const cols = [["prog", "Programme"], ["country", "Country"], ["year", "Year"], ...(hasWave ? [["wave", "Wave"]] : []),
+    ["var", "Variable"], ["src", "Source file"], ["n", "N valid"]];
   const arrow = k => S.occSort[0] === k ? (S.occSort[1] > 0 ? " ▲" : " ▼") : "";
   $("#occTable").innerHTML = `<table class="occ"><thead><tr>${cols.map(([k, l]) => `<th data-sort="${k}"${k === "n" ? ' style="text-align:right"' : ""}>${l}${arrow(k)}</th>`).join("")}</tr></thead>
     <tbody>${rows.map(r => `<tr class="row${selSet.has(r.key) ? " on" : ""}" data-key="${esc(r.key)}">
       <td title="${esc(r.progName)}">${esc(r.prog)}</td><td>${esc(r.country)}</td><td>${esc(r.year)}</td>
+      ${hasWave ? `<td>${esc(r.wave || "")}</td>` : ""}
       <td><code>${esc(r.o[1])}</code>${r.o[2] ? `<div class="alt">${esc(r.o[2])}</div>` : ""}</td>
+      <td class="srcf">${esc(r.src || "–")}</td>
       <td class="num">${fmt(r.o[3])}</td></tr>`).join("")}</tbody></table>`;
 }
 
@@ -504,8 +561,9 @@ function renderDists() {
 
 function distCard(r) {
   const [, varname, rawLabel, nonmiss, d] = r.o;
-  const title = `<h4>${esc(r.country)} · ${esc(r.year)} · ${esc(r.prog)}</h4>
+  const title = `<h4>${esc(r.country)} · ${esc(r.year)}${r.wave ? ` · wave ${esc(r.wave)}` : ""} · ${esc(r.prog)}</h4>
     <div class="dsub"><code>${esc(varname)}</code>${rawLabel ? " · " + esc(rawLabel) : ""}${nonmiss != null ? ` · N valid ${fmt(nonmiss)}` : ""}</div>
+    <div class="dsrc">Source file: <code>${esc(r.src || "unknown")}</code> · ${docLink(r.url, "Codebook & questionnaire ↗")}</div>
     <button class="x" data-rm="${esc(r.key)}" aria-label="Remove">×</button>`;
   if (!d) return `<div class="dist">${title}<p class="muted">No distribution stored.</p></div>`;
   let rows = (d.r || []).map(([v, l, n]) => ({ v, l, n: n || 0, miss: isMissing(v, l) }));
@@ -557,9 +615,13 @@ function bind() {
   let t;
   $("#q").addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { runSearch(); updateHash(); }, 120); });
   $("#more").addEventListener("click", renderMore);
-  const pick = e => { const li = e.target.closest("li[data-g]"); if (li) openQuestion(+li.dataset.g); };
+  const pick = e => {
+    const mark = e.target.closest("[data-mark]");
+    if (mark) { e.stopPropagation(); return toggleExport(+mark.dataset.mark); }  // export marker, not "open"
+    const li = e.target.closest("li[data-g]"); if (li) openQuestion(+li.dataset.g);
+  };
   $("#results").addEventListener("click", pick);
-  $("#results").addEventListener("keydown", e => { if (e.key === "Enter") pick(e); });
+  $("#results").addEventListener("keydown", e => { if (e.key === "Enter" && !e.target.closest("[data-mark]")) pick(e); });
   window.addEventListener("hashchange", route);
 
   // filters: programme checklist + sort, applied with the button
@@ -600,6 +662,8 @@ function bind() {
     if (tr) return toggleSel([tr.dataset.key]);
     const rm = e.target.closest("[data-rm]");
     if (rm) return toggleSel([rm.dataset.rm], false);
+    const mark = e.target.closest("[data-mark]");
+    if (mark) return toggleExport(+mark.dataset.mark);
     const act = e.target.closest("[data-act]")?.dataset.act;
     if (act === "home") { renderHome(); updateHash(); return; }
     if (act === "showall" || act === "scoped") { S.showAll = act === "showall"; applyScope(); return renderDetail(); }
@@ -612,7 +676,8 @@ function bind() {
     const td = e.target.closest("td[data-iso]");
     if (td) {
       const list = S.occ.filter(r => r.iso === td.dataset.iso && r.year === td.dataset.year);
-      return tipAt(e, `<b>${esc(list[0].country)} ${esc(td.dataset.year)}</b>${list.map(r => `${esc(r.prog)} · ${esc(r.o[1])} · N ${fmt(r.o[3])}`).join("<br>")}`);
+      const shown = list.slice(0, 12);
+      return tipAt(e, `<b>${esc(list[0].country)} ${esc(td.dataset.year)}</b>${shown.map(r => `${esc(r.prog)}${r.wave ? " " + esc(r.wave) : ""} · ${esc(r.o[1])} · N ${fmt(r.o[3])}`).join("<br>")}${list.length > shown.length ? `<br>… and ${list.length - shown.length} more datasets` : ""}`);
     }
     const tipEl = e.target.closest("[data-tip]");
     tipAt(e, tipEl ? esc(tipEl.dataset.tip) : null);
@@ -633,6 +698,7 @@ function bind() {
     $("#stats").textContent = `${fmt(idx.label.length)} questions · ${fmt(total)} variables · ${fmt(meta.files.length)} datasets · ${meta.progs.length} programmes · ${meta.countries.length} countries · built ${meta.built}`;
     buildProgList();
     bind();
+    initExport();
     route();
   } catch (e) {
     console.error(e);

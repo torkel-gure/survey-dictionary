@@ -2,8 +2,10 @@
 #
 # Reads every survey-country-year overview (.RData) in the "Overview files"
 # folder and writes gzipped JSON into site/data/:
-#   meta.json.gz     survey programmes, countries and the list of overview files
+#   meta.json.gz     survey programmes, countries, the datasets (with wave, source file and
+#                    survey url) and the survey files from the mapping files that were not included
 #   index.json.gz    one entry per distinct question (normalised label) - used for search
+#   keys.json.gz     the normalised label of each question (stable ids for saved export files)
 #   q/<shard>.json.gz  for each question: every place it was asked + answer distributions
 #
 # Re-run whenever new overview files have been added. Takes a few minutes.
@@ -44,9 +46,21 @@ read_overview <- function(f) {
     vl = x[["Value labels"]],
     head = list(
       country = x[["Country name"]][1], iso = x[["Country code (ISO3+)"]][1],
-      survey = x[["Survey name"]][1], year = x[["Year"]][1]
+      survey = x[["Survey name"]][1], year = x[["Year"]][1],
+      src = if ("Source file name" %in% names(x)) x[["Source file name"]][1] else NA_character_,
+      url = if ("Survey url" %in% names(x)) x[["Survey url"]][1] else NA_character_
     )
   )
+}
+
+# Wave of a dataset, from its overview file name. Most files are PROG_ISO_YEAR (no wave).
+# Waves within a year: PROG_ISO_<wave> (BESP_GBR_W12, VOTER_USA_2019Nov) or
+# PROG_ISO_<wave_round>_YEAR (JGSS_JPN_year_2017-18gi_2017, USCES_USA_year_BYU_2020_2020).
+wave_of <- function(stem, year) {
+  p <- strsplit(stem, "_", fixed = TRUE)[[1]]
+  w <- if (length(p) == 3) p[3] else if (length(p) > 3) paste(p[3:(length(p) - 1)], collapse = "_") else NA_character_
+  w <- sub("^(year|wave|round)_", "", w)
+  if (is.na(w) || w == year || w == "") NA_character_ else w
 }
 
 ov <- lapply(files, read_overview)
@@ -61,11 +75,16 @@ ftab <- data.table(
   iso = vapply(ov, function(o) as.character(o$head$iso), ""),
   country = vapply(ov, function(o) as.character(o$head$country), ""),
   survey = vapply(ov, function(o) as.character(o$head$survey), ""),
-  year = vapply(ov, function(o) as.character(o$head$year), "")
+  year = vapply(ov, function(o) as.character(o$head$year), ""),
+  src = vapply(ov, function(o) as.character(o$head$src), ""),
+  url = vapply(ov, function(o) as.character(o$head$url), "")
 )
 ftab[is.na(iso) | iso == "", iso := parts[[2]][is.na(iso) | iso == ""]]
 ftab[is.na(country) | country == "", country := iso]
 ftab[is.na(year) | year == "", year := parts[[3]][is.na(year) | year == ""]]
+ftab[, wave := mapply(wave_of, stem, year, USE.NAMES = FALSE)]
+ftab[url %in% c("", "NA"), url := NA_character_]
+ftab[src %in% c("", "NA"), src := NA_character_]
 
 progs <- ftab[, .(name = names(sort(table(survey), decreasing = TRUE))[1], nfiles = .N), by = prog][order(prog)]
 ctys <- unique(ftab[, .(iso, country)], by = "iso")[order(country)]
@@ -205,11 +224,42 @@ index <- paste0(
 )
 write_gz(index, file.path(out_dir, "index.json.gz"))
 
+# Question keys (normalised labels) in question-id order. Question ids change between builds,
+# so saved export files store keys; the app loads this only when importing such a file.
+write_gz(arr(jstr(groups$key)), file.path(out_dir, "keys.json.gz"))
+
+# 6. Survey files listed in the mapping files that produced no overview -----------
+# Compared on (programme, source file name). Reasons follow the rules in create_dict.R.
+mapping_dir <- file.path(root, "..", "Existing survey data", "Drive mapping files")
+KNOWN_EXCLUSIONS <- c("CCES22_MIA_OUTPUT vv.sav" = "The data file could not be read (parsing problems).")
+mapping <- rbindlist(lapply(list.files(mapping_dir, pattern = "_variables\\.xlsx$", full.names = TRUE), function(f) {
+  x <- suppressWarnings(readxl::read_excel(f, .name_repair = "minimal"))
+  x <- x[, names(x) != "" & !duplicated(names(x))]
+  if (!"file_name" %in% names(x)) return(NULL)
+  get_col <- function(nm) if (nm %in% names(x)) as.character(x[[nm]]) else NA_character_
+  unique(data.table(prog = sub("_variables\\.xlsx$", "", basename(f)), file_name = as.character(x$file_name),
+                    range = get_col("survey_year_range"), wave = get_col("wave_round")), by = c("prog", "file_name"))
+}))
+excluded <- mapping[!is.na(file_name)][!unique(ftab[!is.na(src), .(prog, file_name = src)]), on = c("prog", "file_name")]
+excluded[, span := vapply(strsplit(range, "-", fixed = TRUE), function(s) {
+  y <- suppressWarnings(as.numeric(s)); if (length(y) == 2 && !anyNA(y)) y[2] - y[1] else 0
+}, 0)]
+excluded[, reason := fifelse(file_name %in% names(KNOWN_EXCLUSIONS), KNOWN_EXCLUSIONS[file_name],
+  fifelse(span > 1, "Year range covers more than two years; such files are excluded when the data has no usable year variable.",
+          "Not processed: not yet run through the overview scripts, or processing stopped with an error (e.g. respondents not matched to a country)."))]
+setorder(excluded, prog, file_name)
+message(nrow(excluded), " survey files in the mapping files have no overview")
+
 meta <- paste0(
   "{\"built\":", jstr(format(Sys.time(), "%Y-%m-%d %H:%M")),
   ",\"progs\":", arr(paste0("[", jstr(progs$prog), ",", jstr(progs$name), ",", progs$nfiles, "]")),
   ",\"countries\":", arr(paste0("[", jstr(ctys$iso), ",", jstr(ctys$country), "]")),
-  ",\"files\":", arr(paste0("[", ftab$pidx, ",", ftab$cidx, ",", jstr(ftab$year), ",", ftab$nvars, "]")), "}"
+  # per dataset: programme, country, year, variables, wave, source file, survey url, overview file name
+  ",\"files\":", arr(paste0("[", ftab$pidx, ",", ftab$cidx, ",", jstr(ftab$year), ",", ftab$nvars, ",",
+                            jstr(ftab$wave), ",", jstr(ftab$src), ",", jstr(ftab$url), ",", jstr(ftab$stem), "]")),
+  ",\"excluded\":", arr(paste0("[", jstr(excluded$prog), ",", jstr(excluded$file_name), ",", jstr(excluded$range), ",",
+                               jstr(excluded$wave), ",", jstr(excluded$reason), "]")),
+  ",\"mappingFiles\":", nrow(mapping), "}"
 )
 write_gz(meta, file.path(out_dir, "meta.json.gz"))
 

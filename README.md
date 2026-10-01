@@ -10,10 +10,26 @@ A searchable dictionary of every variable in the survey-country-year overview fi
 3. click datasets or grid cells to compare **answer distributions** side by side,
 4. browse by programme (**Survey programmes** tab): one card per programme, and a programme page
    with its datasets by country × year and the same search / question / distribution tools,
-   limited to that programme.
+   limited to that programme,
+5. export (**Export** tab): collect questions with the bookmark marker on each result, choose per
+   question the programmes, coverage table, distributions (by clicking country-year cells) and a
+   comment, edit the title, subtitle and methodology text, and **Compile information to Word**
+   (.docx, A4, Times New Roman 12 pt, 1.5 spacing). **Save overview source** downloads the
+   selection and settings as JSON, which can be loaded again in the Export tab.
 
-Counts: "datasets" are distinct survey-country-year files. One dataset can contain several
-variables with the same label, so the dataset table has one row per variable.
+Counts: "datasets" are distinct overview files: survey-country-year, or survey-country-wave
+where a programme fielded several waves in one year (BESP, VOTER, USCES modules, JGSS 2017-18).
+Each dataset shows its source data file and the survey's documentation link (codebooks and
+questionnaires). The survey data files themselves are not distributed. One dataset can contain
+several variables with the same label, so the dataset table has one row per variable.
+
+### Overview source files (export)
+
+`format: "survey-dictionary-overview-source"`, `version: 1`. Questions are identified by their
+normalised label (`key`, stable across data rebuilds) plus the question id of the build they were
+saved with (`id`, `dataBuilt`); distributions by overview file name and variable name. Loading
+checks the structure, matches questions by id (same build) or key (other builds), and reports
+questions or distributions that no longer exist.
 
 It is a static website: plain HTML/JS with pre-built, gzipped JSON data. There is no server
 process, so it opens quickly and costs almost nothing to host. Search runs in the browser
@@ -26,14 +42,20 @@ distributions) are fetched only when someone opens it.
 build_data.R      R script: reads all overview .RData files -> site/data/
 site/
   index.html, app.js, style.css   the app
-  data/meta.json.gz               programmes, countries, list of datasets
+  export.js                       Export tab: selection, Word document (docx library, loaded on demand), save/load
+  data/meta.json.gz               programmes, countries, datasets (wave, source file, survey url),
+                                  survey files from the mapping files that were not included
   data/index.json.gz              one row per distinct question (for search)
+  data/keys.json.gz               normalised label per question (for saved export files)
   data/q/<n>.json.gz              question shards: occurrences + distributions
 ```
 
 ## Rebuilding the data
 
-Run whenever new overview files have been added (a few minutes):
+Run whenever overview files have been added or changed (about 20 minutes for ~5,000 files).
+It also reads `../Existing survey data/Drive mapping files/*_variables.xlsx` to list survey files
+that produced no overview, with a reason (year range over two years without a year variable,
+unreadable file, or not processed).
 
 ```
 Rscript build_data.R

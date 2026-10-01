@@ -14,7 +14,7 @@ Push-Location $data
 try {
   # shards first, then the index + meta, so visitors never get an index that points at missing shards
   Invoke-Gcloud storage cp -r q "$bucket/data/"
-  Invoke-Gcloud storage cp index.json.gz "$bucket/data/"
+  Invoke-Gcloud storage cp index.json.gz keys.json.gz "$bucket/data/"
   # meta.json.gz carries the build stamp that versions every other file, so it must never be cached
   Invoke-Gcloud storage cp meta.json.gz "$bucket/data/" --cache-control=no-cache
 } finally { Pop-Location }
