@@ -1,7 +1,7 @@
 "use strict";
 /* Survey Dictionary: static front end.
    Data (built by build_data.R) lives in data/: meta.json.gz, index.json.gz, q/<shard>.json.gz
-   Views (in the URL hash):  search (default) · v=programmes (programme cards) · v=prog&pg=CODE (one programme) */
+   Views (in the URL hash):  search (default) · v=programmes (programme cards) · v=prog&pg=CODE (one programme) · v=harmonized (maps, harmonized.js) */
 
 // Where the data files live: set in config.js (e.g. a GCS bucket URL); defaults to ./data/
 const DATA = window.SD_DATA_URL || "data/";
@@ -233,7 +233,7 @@ function updateHash() {
 function route() {
   const p = new URLSearchParams(location.hash.slice(1));
   const codeIdx = c => S.meta.progs.findIndex(x => x[0] === c);
-  let view = ["programmes", "prog", "export"].includes(p.get("v")) ? p.get("v") : "search";
+  let view = ["programmes", "prog", "export", "harmonized"].includes(p.get("v")) ? p.get("v") : "search";
   let pg = view === "prog" ? codeIdx(p.get("pg")) : null;
   if (view === "prog" && pg < 0) view = "programmes";
   S.view = view; S.pg = pg;
@@ -245,15 +245,17 @@ function route() {
   S.active = null; S.occAll = []; S.occ = []; S.sel = []; S.showAll = false;
   closePop();
 
-  const pageView = view === "programmes" || view === "export";   // full-width pages without the search layout
+  const pageView = view === "programmes" || view === "export" || view === "harmonized";   // full-width pages without the search layout
   $("#tabSearch").classList.toggle("on", view === "search");
   $("#tabProgs").classList.toggle("on", view === "programmes" || view === "prog");
   $("#tabExport").classList.toggle("on", view === "export");
+  $("#tabHarmonized").classList.toggle("on", view === "harmonized");
   $("#controls").hidden = pageView;
   $("#active").hidden = pageView;
   $("#layout").hidden = pageView;
   $("#progIndex").hidden = view !== "programmes";
   $("#exportView").hidden = view !== "export";
+  $("#harmonizedView").hidden = view !== "harmonized";
   $("#progField").hidden = view !== "search";
   const ctx = $("#context");
   ctx.hidden = view !== "prog";
@@ -265,6 +267,7 @@ function route() {
 
   if (view === "programmes") { renderProgIndex(); window.scrollTo(0, 0); return; }
   if (view === "export") { renderExport(); window.scrollTo(0, 0); return; }
+  if (view === "harmonized") { renderHarmonized(p); window.scrollTo(0, 0); return; }
   runSearch(); renderActive();
   const q = p.get("q");
   if (q != null && +q < S.idx.label.length) openQuestion(+q); else renderHome();

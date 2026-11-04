@@ -329,3 +329,61 @@ label.toggle { display: inline-flex; gap: 6px; align-items: center; font-size: 1
   .detail { padding: 16px; }
   .dists { grid-template-columns: 1fr; }
 }
+
+/* harmonized variables tab */
+:root { --hv-1: #86b6ef; --hv-2: #5598e7; --hv-3: #2a78d6; --hv-4: #1c5cab; --hv-5: #0d366b; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --hv-1: #184f95; --hv-2: #256abf; --hv-3: #3987e5; --hv-4: #6da7ec; --hv-5: #b7d3f6; }
+}
+:root[data-theme="dark"] { --hv-1: #184f95; --hv-2: #256abf; --hv-3: #3987e5; --hv-4: #6da7ec; --hv-5: #b7d3f6; }
+.harmonized { padding: 24px; }
+.hv-wrap { max-width: 1320px; margin: 0 auto; }
+.hv-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; margin-bottom: 14px; }
+.hv-controls select { max-width: 100%; }
+.hv-seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-2); border-radius: 10px; }
+.hv-seg button { border: 0; background: none; padding: 5px 12px; border-radius: 8px; cursor: pointer; color: var(--text-2); font-weight: 500; }
+.hv-seg button:hover { color: var(--text); }
+.hv-seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.hv-var p { margin: 0 0 4px; }
+.hv-main { display: grid; grid-template-columns: minmax(300px, 4fr) minmax(0, 7fr); gap: 12px; align-items: start; }
+.hv-map { margin: 0; }
+.hv-map figcaption { margin-bottom: 10px; }
+.hv-map svg { display: block; width: 100%; height: min(62vh, 580px); }
+.hv-base { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; fill-rule: evenodd; }
+.hv-hatch-bg { fill: var(--surface-2); }
+.hv-hatch-line { stroke: var(--border); }
+.hv-r { fill-rule: evenodd; stroke: var(--surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; cursor: pointer; outline: none; stroke-linejoin: round; }
+.hv-r:hover { stroke: var(--text-2); stroke-width: 2; }
+.hv-r:focus-visible, .hv-r.sel { stroke: var(--text); stroke-width: 2.5; }
+path.hv-c1 { fill: var(--hv-1); } path.hv-c2 { fill: var(--hv-2); } path.hv-c3 { fill: var(--hv-3); } path.hv-c4 { fill: var(--hv-4); } path.hv-c5 { fill: var(--hv-5); }
+.hv-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-top: 10px; font-size: 12px; color: var(--text-2); }
+.hv-legend-title { font-weight: 600; }
+.hv-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hv-sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+i.hv-c1 { background: var(--hv-1); } i.hv-c2 { background: var(--hv-2); } i.hv-c3 { background: var(--hv-3); } i.hv-c4 { background: var(--hv-4); } i.hv-c5 { background: var(--hv-5); }
+.hv-none { background: repeating-linear-gradient(45deg, var(--surface-2), var(--surface-2) 3px, var(--border) 3px, var(--border) 5px); }
+.hv-credit { margin: 10px 0 0; font-size: 11px; }
+.hv-credit a, .hv-meta a { color: var(--accent); }
+.hv-panel { min-width: 0; }
+.hv-panel-head { display: flex; gap: 12px; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+.hv-panel-head h3 { margin: 0; font-size: 16px; }
+.hv-panel-head .btn { flex: none; }
+.hv-panel p { margin: 0 0 8px; }
+.hv-panel h4 { margin: 14px 0 6px; font-size: 13px; font-weight: 600; }
+.hv-scroll { overflow-x: auto; max-height: 620px; overflow-y: auto; }
+.hv-off .hv-scroll, .hv-table .hv-scroll { max-height: 420px; }
+.harmonized table.occ th.num, .harmonized table.occ td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hv-why { font-size: 12px; color: var(--text-2); min-width: 120px; }
+.hv-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); white-space: nowrap; }
+.hv-tag.used { background: var(--accent-soft); border-color: transparent; }
+.hv-meta { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 8px; font-size: 13px; }
+.hv-meta dt { color: var(--muted); }
+.hv-meta dd { margin: 0; overflow-wrap: anywhere; }
+.hv-more { margin-top: 14px; }
+.hv-more summary { cursor: pointer; color: var(--text-2); font-weight: 500; }
+@media (max-width: 960px) {
+  .harmonized { padding: 16px; }
+  .hv-main { grid-template-columns: minmax(0, 1fr); }
+  .hv-map svg { height: 60vh; }
+}
+
