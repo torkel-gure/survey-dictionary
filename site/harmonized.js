@@ -1,16 +1,30 @@
 "use strict";
-/* Harmonized variables tab: maps of what has been coded and harmonized, so the coding can be followed.
-   World map > region > country > subnational regions. Click a subnational region for the source data behind it,
-   and a source for how its region codes were coded. Anything with no data is grey; darker blue means more respondents.
-   Region codes that could not be coded stay off the map and are listed with their label from the file.
+/* Harmonized variables tab: the harmonized time series and how they were coded.
+   World map > region > country. A country page leads with its timelines: every variant of the harmonized
+   series, by which questions it joins and by geographic level. Click a wave for its question and how the answers
+   were coded; click a region for the source data behind it, and a source for how its region codes were coded.
+   Anything with no data is grey; darker blue means more respondents. Region codes that could not be coded stay off
+   the map and are listed with their label from the file.
    Data: data/harmonized/ (aggregates from the survey harmonization project, no respondent-level rows). */
 
 const HV = {
   index: null, world: null, files: new Map(), bound: false, hoverRegion: null,
-  varId: null, level: "world", region: null, iso: null, wave: "all", unit: null, src: null,   // what is on screen (kept in the URL)
-  d: null, shapes: null, names: new Map(), group: new Map(), scale: { all: [], wave: [] },
+  varId: null, level: "world", region: null, iso: null, t: null, wave: "all", unit: null, src: null,   // what is on screen (kept in the URL)
+  d: null, shapes: null, tl: null, names: new Map(), group: new Map(), levelMaps: new Map(), programs: [], scale: { all: {}, wave: {} },
 };
 const HV_WORLD_VIEW = { lon_min: -180, lat_min: -58, lon_max: 180, lat_max: 84 };
+const HV_CODED = { pro: "Protectionist", anti: "Not protectionist", dk: "Don't know", refused: "Refused", not_asked: "Not asked", other_missing: "Other missing" };
+const HV_FORMS = { orig: "original scale", bin: "protectionist or not (1 or 0)" };
+const HV_CHANGES = {
+  dk_presentation: "How \"don't know\" is presented changes",
+  mode: "The interview mode changes",
+  definition: "The definitions given to respondents change",
+  instrument: "Moves to another file series",
+  program: "Moves to another program",
+  format: "The answer format changes",
+  has_midpoint: "A middle category appears or goes",
+  nonresponse_detail: "The detail on nonresponse changes",
+};
 
 const hvFile = name => {
   if (!HV.files.has(name)) HV.files.set(name, loadGz(`harmonized/${name}.json.gz`));
@@ -18,7 +32,6 @@ const hvFile = name => {
 };
 const hvList = x => x == null ? [] : [].concat(x);
 const hvIsAll = () => HV.wave === "all";
-const hvRegion = unit => hvIsAll() ? (HV.group.get(unit) || unit) : unit;
 const hvName = id => HV.names.get(id) || id;
 const hvWave = key => HV.d.waves.find(w => w.wave_key === key);
 const hvWaveLabel = w => `${w.program} ${w.wave}`;
@@ -26,7 +39,17 @@ const hvYear = w => String(w.date).slice(0, 4);
 const hvMonth = w => new Date(w.date + "T00:00:00Z").toLocaleString("en", { month: "long", year: "numeric", timeZone: "UTC" });
 // Some region variables hold codes with no label: the code itself is what the file has.
 const hvLabel = x => x ? esc(x) : `<span class="muted">no label in the file</span>`;
-const hvCellsInView = () => hvIsAll() ? HV.d.cells : HV.d.cells.filter(c => c.wave === HV.wave);
+const hvTlWaveKeys = () => hvList(HV.tl.waves);
+const hvTlWaves = () => { const k = new Set(hvTlWaveKeys()); return HV.d.waves.filter(w => k.has(w.wave_key)); };
+// The region a coded unit counts as in the selected timeline.
+const hvRegion = unit => {
+  if (HV.tl && HV.tl.level) return (HV.levelMaps.get(HV.tl.level) || new Map()).get(unit) || null;
+  return hvIsAll() ? (HV.group.get(unit) || unit) : unit;
+};
+const hvCellsInView = () => {
+  const k = new Set(hvTlWaveKeys());
+  return HV.d.cells.filter(c => k.has(c.wave) && (hvIsAll() || c.wave === HV.wave));
+};
 const hvSubsample = src => (HV.d.coding.find(c => c.source === src) || {}).subsample || "";
 const hvSourceWave = src => {
   const cell = HV.d.cells.find(c => c.source === src);
@@ -63,16 +86,19 @@ const hvClassOf = (n, sc) => hvClass(hvClassIndex(n, sc.breaks), sc.breaks.lengt
 
 function hvTotals(cells) {
   const m = new Map();
-  for (const c of cells) if (c.unit) { const r = hvRegion(c.unit); m.set(r, (m.get(r) || 0) + c.n); }
+  for (const c of cells) if (c.unit) { const r = hvRegion(c.unit); if (r) m.set(r, (m.get(r) || 0) + c.n); }
   return m;
 }
 
+// One scale for single waves and one for all waves of the selected timeline.
 function hvPrepareScale() {
+  const k = new Set(hvTlWaveKeys());
+  const toRegion = u => HV.tl.level ? HV.levelMaps.get(HV.tl.level).get(u) : (HV.group.get(u) || u);
   const perWave = new Map(), perGroup = new Map();
   for (const c of HV.d.cells) {
-    if (!c.unit) continue;
-    const k = c.wave + "|" + c.unit, g = HV.group.get(c.unit) || c.unit;
-    perWave.set(k, (perWave.get(k) || 0) + c.n);
+    if (!c.unit || !k.has(c.wave)) continue;
+    const single = HV.tl.level ? toRegion(c.unit) : c.unit, g = toRegion(c.unit), key = c.wave + "|" + single;
+    perWave.set(key, (perWave.get(key) || 0) + c.n);
     perGroup.set(g, (perGroup.get(g) || 0) + c.n);
   }
   HV.scale = { wave: hvScaleOf([...perWave.values()]), all: hvScaleOf([...perGroup.values()]) };
@@ -84,6 +110,22 @@ async function hvLoadCountry() {
   HV.d = d; HV.shapes = shapes;
   HV.names = new Map(d.units.map(u => [u.id, u.name]));
   HV.group = new Map(d.units.filter(u => u.all_waves).map(u => [u.id, u.all_waves]));
+  HV.levelMaps = new Map(hvList(d.levels).map(l => [l.id, new Map(hvList(l.members).map(m => [m.fine, m.unit]))]));
+  HV.programs = [...new Set(d.waves.map(w => w.program))];
+}
+
+const hvTimelines = () => hvList(HV.d.timelines);
+// Opens on the timeline with the most waves; between equals, the most detailed level, and a fixed level before a mixed one.
+function hvPickTimeline(id) {
+  const all = hvTimelines();
+  const found = all.find(t => t.id === id);
+  if (found) return found;
+  return all.slice().sort((a, b) => b.n_waves - a.n_waves || (b.level ? 1 : 0) - (a.level ? 1 : 0) || b.n_units - a.n_units)[0];
+}
+function hvSelectTimeline(id) {
+  HV.tl = hvPickTimeline(id);
+  HV.t = HV.tl.id;
+  if (!hvIsAll() && !hvTlWaveKeys().includes(HV.wave)) HV.wave = "all";
   hvPrepareScale();
 }
 
@@ -92,6 +134,7 @@ function hvSync() {
   if (HV.level === "region") p.r = HV.region;
   if (HV.level === "country") {
     p.c = HV.iso;
+    p.t = HV.t;
     if (!hvIsAll()) p.w = HV.wave;
     if (HV.unit) p.u = HV.unit;
     if (HV.src) p.src = HV.src;
@@ -109,10 +152,12 @@ async function renderHarmonized(p) {
     const iso = p.get("c");
     HV.unit = HV.src = null;
     HV.wave = "all";
+    HV.tl = null;
     if (iso && hvTotalsOfVar().some(t => t.iso3 === iso)) {
       HV.level = "country"; HV.iso = iso; HV.region = hvCountryRegion(iso);
       await hvLoadCountry();
       if (hvWave(p.get("w"))) HV.wave = p.get("w");
+      hvSelectTimeline(p.get("t"));
       HV.unit = p.get("u") || null;
       HV.src = p.get("src") || null;
     } else if (hvList(HV.world.regions).some(r => r.region === p.get("r"))) {
@@ -131,14 +176,17 @@ async function renderHarmonized(p) {
 /* ---------- page ---------- */
 function hvDraw(refocus) {
   const root = $("#harmonizedView");
-  const body = HV.level === "country" ? `${hvTimeControl()}<div id="hvBody">${hvCountryBody()}</div>` : hvWorldBody();
+  const body = HV.level === "country"
+    ? `${hvTimelineChart()}${hvTimelineCard()}<div id="hvBody">${hvCountryBody()}</div>`
+    : hvWorldBody();
   root.innerHTML = `<div class="hv-wrap">
     <div class="pi-head"><h2>Harmonized variables</h2>
-      <p class="muted">What has been coded and harmonized so far. Click through from the world to a country, then a region to see the source data behind it, then a source to see how its regions were coded.</p></div>
+      <p class="muted">The harmonized time series so far, and how they were coded. Click through from the world to a country to see its timelines.</p></div>
     ${hvControls()}
     ${hvVariableCard()}
     ${body}
   </div>`;
+  if (HV.level === "country") hvMarkChart();
   hvSync();
   if (refocus) { const el = root.querySelector(refocus); if (el) el.focus({ preventScroll: true }); }
 }
@@ -160,10 +208,10 @@ function hvVariableCard() {
   const v = hvVar();
   const t = hvTotalsOfVar();
   const y0 = Math.min(...t.map(x => +x.first_year)), y1 = Math.max(...t.map(x => +x.last_year));
+  const versions = +v.wordings === 1 ? "one wording" : `${v.wordings} versions of the wording`;
   return `<section class="card hv-var"><h3>${esc(v.name)}</h3>
-    <p>${esc(v.wording)}</p>
-    <p class="muted">Answers: ${esc(v.scale)}</p>
-    <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.</p></section>`;
+    <p>${esc(v.definition)}.</p>
+    <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}, with ${esc(versions)} and ${esc(v.scales)} answer scales. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.${HV.level === "country" ? "" : " Open a country to see every question and how it was coded."}</p></section>`;
 }
 
 /* ---------- world and region views ---------- */
@@ -199,7 +247,7 @@ function hvWorldBody() {
     <figure class="card hv-map hv-map-world">
       <figcaption><b>${esc(title)}</b><br><span class="muted">${esc(sub)}</span></figcaption>
       <svg viewBox="${x0} ${y0} ${w} ${h}" role="group" aria-label="${esc(title)}"><g transform="scale(${k} 1)">${paths}</g></svg>
-      ${hvLegend(sc, inRegionView ? "No data yet" : "No data yet")}
+      ${hvLegend(sc, "No data yet")}
       ${hvWorldCredit()}
     </figure>
     <aside class="card hv-panel">${inRegionView ? hvCountryList(byIso) : hvRegionList(regionN, byIso)}</aside>
@@ -232,9 +280,97 @@ function hvWorldCredit() {
     <ul>${rows.map(c => `<li>${esc(c.name)}: ${esc(c.source)}. ${esc(c.license)}.</li>`).join("")}</ul></details>`;
 }
 
-/* ---------- country view ---------- */
-function hvTimeControl() {
-  const waves = HV.d.waves, i = waves.findIndex(w => w.wave_key === HV.wave);
+/* ---------- timelines: the variants of the harmonized series ---------- */
+const hvTlYears = t => { const a = String(t.start).slice(0, 4), b = String(t.end).slice(0, 4); return a === b ? a : `${a}–${b}`; };
+const hvProgramOf = key => key.split(":")[0];
+const hvChangesAt = (t, wave) => {
+  const c = hvList(t.changes).find(x => x.wave === wave);
+  return c ? hvList(c.kinds) : [];
+};
+// What changes at a wave, in words. Moves between EB and ClimateEB files show in the marker's shape, so they raise no flag.
+const hvChangeTexts = kinds => kinds.map(k => {
+  if (HV_CHANGES[k]) return HV_CHANGES[k];
+  const r = hvList(HV.d.recodes).find(x => x.event_id === k);
+  return r ? `Region coding: ${String(r.notes).split(/(?<=\.)\s/)[0]}` : k;
+});
+const hvFlagKinds = kinds => kinds.filter(k => k !== "instrument" && k !== "program");
+function hvLevelSeq(t) {
+  const seq = [];
+  for (const k of hvList(t.waves)) { const n = hvWave(k).fine_units; if (seq[seq.length - 1] !== n) seq.push(n); }
+  return seq;
+}
+const hvTlTitle = t => t.level ? `${t.n_units} regions` : `Finest in each wave`;
+const hvTlSub = t => t.level ? t.level_label : `${hvLevelSeq(t).join(", then ")} regions`;
+
+function hvTimelineChart() {
+  const waves = HV.d.waves;
+  const y0 = +hvYear(waves[0]), y1 = +hvYear(waves[waves.length - 1]) + 1;
+  const T0 = Date.UTC(y0, 0, 1), T1 = Date.UTC(y1, 0, 1);
+  const pct = d => (100 * (Date.parse(d + "T00:00:00Z") - T0) / (T1 - T0)).toFixed(2);
+  const years = []; for (let y = y0; y < y1; y++) years.push(y);
+  const axis = years.map(y => `<span class="hv-ax" style="left:${pct(`${y}-01-01`)}%">${y}</span>`).join("");
+  const grid = years.map(y => `<i class="hv-gl" style="left:${pct(`${y}-01-01`)}%"></i>`).join("");
+  const groups = new Map();
+  for (const t of hvTimelines()) {
+    const key = hvList(t.instruments).join("|");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  const order = [...groups.values()].sort((a, b) => hvList(b[0].instruments).length - hvList(a[0].instruments).length || Math.max(...b.map(t => t.n_waves)) - Math.max(...a.map(t => t.n_waves)));
+  const row = t => {
+    const keys = hvList(t.waves), ws = keys.map(hvWave);
+    const dots = ws.map(w => {
+      const flag = hvFlagKinds(hvChangesAt(t, w.wave_key)).length > 0;
+      return `<button type="button" class="hv-dot hv-p${HV.programs.indexOf(w.program)}${flag ? " chg" : ""}" style="left:${pct(w.date)}%" data-wave="${esc(w.wave_key)}" aria-label="${esc(hvWaveLabel(w))}, ${esc(hvMonth(w))}"></button>`;
+    }).join("");
+    const a = pct(ws[0].date), b = pct(ws[ws.length - 1].date);
+    return `<div class="hv-tl-row" data-timeline="${esc(t.id)}">
+      <button type="button" class="hv-tl-label" data-pick="${esc(t.id)}"><b>${esc(hvTlTitle(t))}</b> <span>${esc(hvTlSub(t))}</span><br><span class="muted">${t.n_waves} waves, ${esc(hvTlYears(t))}</span></button>
+      <div class="hv-tl-track">${grid}<i class="hv-tl-line" style="left:${a}%;width:${(b - a).toFixed(2)}%"></i>${dots}</div>
+    </div>`;
+  };
+  const head = g => {
+    const inGroup = new Set(g.flatMap(t => hvList(t.waves).map(hvProgramOf)));
+    const programs = HV.programs.filter(p => inGroup.has(p));
+    const same = hvList(g[0].instruments).length > 1;
+    return `<div class="hv-tl-group"><b>${esc(programs.join(" and "))}</b> <span class="muted">${same ? "The same question across programs, checked in the questionnaires" : "One instrument: the same item in every wave"}</span></div>`;
+  };
+  const coded = waves.map(w => `<span class="hv-num" style="left:${pct(w.date)}%" data-codedwave="${esc(w.wave_key)}">${esc(w.fine_units)}</span>`).join("");
+  const key = HV.programs.map((p, i) => `<span class="hv-key"><i class="hv-dot-key hv-p${i}"></i>${esc(p)}</span>`).join("");
+  return `<section class="card hv-tl" id="hvTimelines">
+    <h3>Timelines in ${esc(hvCountryName(HV.iso))}</h3>
+    <p class="muted">Each row is one way this variable can be followed over time: which questions it joins, and at which level of geography. A level only reaches the waves that can be expressed at it. Click a row to see it on the map, or a wave for its question and how its answers were coded.</p>
+    <div class="hv-tl-scroll"><div class="hv-tl-inner">
+      <div class="hv-tl-row hv-tl-axis"><div class="hv-tl-label"></div><div class="hv-tl-track">${axis}</div></div>
+      <div class="hv-tl-row hv-tl-coded"><div class="hv-tl-label"><b>Regions coded in each wave</b><br><span class="muted">The finest the files allow</span></div><div class="hv-tl-track">${grid}${coded}</div></div>
+      ${order.map(g => head(g) + g.slice().sort((a, b) => String(a.start).localeCompare(String(b.start)) || (b.level ? 1 : 0) - (a.level ? 1 : 0) || b.n_units - a.n_units).map(row).join("")).join("")}
+    </div></div>
+    <div class="hv-legend">${key}<span class="hv-key"><i class="hv-dot-key hv-flag"></i>Something about the question or coding changes here</span></div>
+  </section>`;
+}
+
+// Marks the selected row and wave without redrawing the chart.
+function hvMarkChart() {
+  const root = $("#hvTimelines");
+  if (!root) return;
+  root.querySelectorAll(".hv-tl-row[data-timeline]").forEach(r => r.classList.toggle("on", r.dataset.timeline === HV.t));
+  root.querySelectorAll(".hv-dot").forEach(d => {
+    const mine = d.closest(".hv-tl-row").dataset.timeline === HV.t && d.dataset.wave === HV.wave;
+    d.classList.toggle("cur", mine);
+    d.setAttribute("aria-pressed", String(mine));
+  });
+}
+
+function hvTimelineCard() {
+  const t = HV.tl;
+  const waves = hvTlWaves(), i = waves.findIndex(w => w.wave_key === HV.wave);
+  const programs = HV.programs.filter(p => waves.some(w => w.program === p));
+  const inst = hvList(t.instruments);
+  const rel = inst.length > 1 ? hvList(HV.d.relations).find(r => inst.includes(r.instrument_a) && inst.includes(r.instrument_b)) : null;
+  const seq = hvLevelSeq(t);
+  const levelText = t.level
+    ? `${t.n_units} regions at ${t.level_label}. Reaches ${t.n_waves} of ${HV.d.waves.length} waves in ${hvCountryName(HV.iso)}.`
+    : `The finest coding each wave has, so the regions change from ${seq.join(" to ")} along the way. With all waves selected, the map shows regions that stay the same.`;
   let lastYear = null;
   const ticks = waves.map((w, n) => {
     const y = hvYear(w), label = y !== lastYear ? y : "";
@@ -242,31 +378,42 @@ function hvTimeControl() {
     return `<span class="hv-tick" style="left:${waves.length > 1 ? (100 * n / (waves.length - 1)).toFixed(3) : 0}%">${esc(label)}</span>`;
   }).join("");
   return `<section class="card hv-time${i < 0 ? " idle" : ""}" id="hvTime">
-    <button type="button" class="btn small" id="hvAllWaves" aria-pressed="${i < 0}">All waves</button>
-    <div class="hv-slide">
-      <div class="hv-now" id="hvNow" aria-live="polite">${esc(hvNowText())}</div>
-      <input type="range" id="hvSlider" min="0" max="${waves.length - 1}" step="1" value="${Math.max(0, i)}" aria-label="Wave" aria-valuetext="${esc(hvNowText())}">
-      <div class="hv-ticks" aria-hidden="true">${ticks}</div>
+    <div class="hv-tl-now"><h3>${esc(programs.join(" and "))}: ${esc(hvTlTitle(t))}${t.level ? ` (${esc(t.level_label)})` : ""}, ${esc(hvTlYears(t))}</h3>
+      <dl class="hv-meta">
+        <dt>Questions</dt><dd>${rel ? esc(rel.rationale) : "One instrument: the same item in every wave of this program."}</dd>
+        <dt>Geography</dt><dd>${esc(levelText)}</dd>
+        <dt>Available as</dt><dd>${hvList(t.forms).map(f => esc(HV_FORMS[f] || f)).join("; ")}</dd>
+      </dl></div>
+    <div class="hv-time-row">
+      <button type="button" class="btn small" id="hvAllWaves" aria-pressed="${i < 0}">All waves</button>
+      <div class="hv-slide">
+        <div class="hv-now" id="hvNow" aria-live="polite">${esc(hvNowText())}</div>
+        <input type="range" id="hvSlider" min="0" max="${waves.length - 1}" step="1" value="${Math.max(0, i)}" aria-label="Wave" aria-valuetext="${esc(hvNowText())}">
+        <div class="hv-ticks" aria-hidden="true">${ticks}</div>
+      </div>
     </div>
   </section>`;
 }
 
 function hvNowText() {
   if (hvIsAll()) {
-    const w = HV.d.waves;
-    return `All ${w.length} waves, ${hvYear(w[0])}–${hvYear(w[w.length - 1])}. Move the slider to see one wave.`;
+    const w = hvTlWaves();
+    return `All ${w.length} waves in this timeline, ${hvYear(w[0])}–${hvYear(w[w.length - 1])}. Move the slider to see one wave.`;
   }
   const w = hvWave(HV.wave);
   return `${hvWaveLabel(w)}, ${hvMonth(w)}`;
 }
 
+/* ---------- country view ---------- */
 function hvCountryBody() {
   const totals = hvTotals(hvCellsInView());
   if (HV.unit && !totals.has(HV.unit)) HV.unit = null;
+  const panel = HV.src ? hvSourcePanel() : HV.unit ? hvRegionPanel(totals) : !hvIsAll() ? hvWavePanel() : hvIntroPanel(totals);
   return `<div class="hv-main">
       ${hvMap(totals)}
-      <aside class="card hv-panel" aria-live="polite">${HV.src ? hvSourcePanel() : HV.unit ? hvRegionPanel(totals) : hvIntroPanel(totals)}</aside>
+      <aside class="card hv-panel" aria-live="polite">${panel}</aside>
     </div>
+    ${hvQuestions()}
     ${hvNotCoded()}
     ${hvRegionTable(totals)}`;
 }
@@ -275,6 +422,7 @@ function hvRedrawBody(refocus) {
   const body = $("#hvBody");
   if (!body) return hvDraw(refocus);
   body.innerHTML = hvCountryBody();
+  hvMarkChart();
   hvSync();
   if (refocus) { const el = $("#harmonizedView").querySelector(refocus); if (el) el.focus({ preventScroll: true }); }
 }
@@ -290,7 +438,7 @@ function hvMap(totals) {
   const onMap = [...totals.values()].reduce((a, b) => a + b, 0);
   const off = hvCellsInView().filter(c => !c.unit).reduce((a, c) => a + c.n, 0);
   const w = hvIsAll() ? null : hvWave(HV.wave);
-  const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: the regions as coded in this wave` : "All waves: regions that stay the same across every wave";
+  const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: ${totals.size} regions` : `All waves in this timeline: ${totals.size} regions`;
   return `<figure class="card hv-map">
     <figcaption><b>${esc(title)}</b><br><span class="muted">${fmt(onMap)} respondents on the map${off ? ` · ${fmt(off)} could not be coded (listed below)` : ""}</span></figcaption>
     <svg viewBox="${esc(shapes.view_box)}" role="group" aria-label="Map of ${esc(hvCountryName(HV.iso))}: respondents per region">
@@ -319,9 +467,41 @@ function hvCredit() {
 }
 
 function hvIntroPanel(totals) {
-  return `<h3>Click a region</h3>
-    <p>You will see the source data that make it up, with the year and the number of respondents in each. Click a source to see how every region code in it was coded.</p>
-    <p class="muted">${totals.size} regions in this view. You can also pick a region from the table below the map.</p>`;
+  return `<h3>Click a wave or a region</h3>
+    <p>Click a wave on a timeline, or move the slider, to see its question and which answers were coded to what.</p>
+    <p>Click a region to see the source data that make it up, then a source to see how its region codes were coded.</p>
+    <p class="muted">${totals.size} regions in this timeline.</p>`;
+}
+
+/* The depth of the coding in one wave: the question as asked, what each answer was coded to, how regions were coded. */
+function hvWavePanel() {
+  const w = hvWave(HV.wave);
+  const changes = hvChangeTexts(hvFlagKinds(hvChangesAt(HV.tl, w.wave_key)));
+  const answers = hvList(HV.d.answers).filter(a => a.wave === w.wave_key);
+  const sources = [...new Set(hvCellsInView().map(c => c.source))];
+  const leftOut = x => x == null ? `<span class="muted">left out</span>` : esc(x);
+  const row = (dt, dd) => dd ? `<dt>${esc(dt)}</dt><dd>${esc(dd)}</dd>` : "";
+  return `<div class="hv-panel-head"><h3>${esc(hvWaveLabel(w))}, ${esc(hvMonth(w))}</h3><button type="button" class="btn small" id="hvCloseWave">All waves</button></div>
+    ${changes.length ? `<div class="hv-note"><b>Changes at this wave</b><ul>${changes.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
+    <h4>The question</h4>
+    <dl class="hv-meta">
+      <dt>Question</dt><dd>${esc(w.question_id)}, item ${esc(w.item_no)}, page ${esc(w.page)} of the ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"} (study ${esc(w.study)})</dd>
+      ${row("Wording", w.wording)}
+      ${row("Answers offered", w.scale)}
+      ${row("How it is asked", w.presentation)}
+      ${row("Don't know", w.dk_presentation)}
+      ${row("Interview mode", w.mode)}
+      ${row("Definitions given", w.definition)}
+      ${row("Note", w.notes)}
+      <dt>In the file</dt><dd>${esc(w.file)}: <code>${esc(w.variable)}</code>${w.variable_label ? `, ${esc(w.variable_label)}` : ""}</dd>
+      <dt>Fieldwork</dt><dd>${esc(w.date_min)} to ${esc(w.date_max)}, from the ${esc(w.date_basis)}</dd>
+    </dl>
+    <h4>What the answers were coded to</h4>
+    <div class="hv-scroll"><table class="occ"><thead><tr><th>Code</th><th>Label in the file</th><th class="num">Respondents</th><th>Coded as</th><th class="num">1 or 0</th><th class="num">Original scale</th><th>Why</th></tr></thead>
+      <tbody>${answers.map(a => `<tr><td>${esc(a.code)}</td><td>${hvLabel(a.label)}</td><td class="num">${fmt(a.n)}</td><td>${esc(HV_CODED[a.coded] || a.coded)}</td><td class="num">${leftOut(a.bin)}</td><td class="num">${leftOut(a.orig)}</td><td class="hv-why">${esc(a.why || "")}</td></tr>`).join("")}</tbody></table></div>
+    <h4>How its regions were coded</h4>
+    <p class="muted">${w.fine_units} regions coded${w.coded_level ? ` at ${esc(w.coded_level)}` : ""}${HV.tl.level && HV.tl.level_label !== w.coded_level ? `, counted at ${esc(HV.tl.level_label)} in this timeline` : ""}. Click a source for every code.</p>
+    <div class="hv-srcs">${sources.map(s => `<button type="button" class="btn small" data-src="${esc(s)}">${esc(hvSourceLabel(s))}</button>`).join("")}</div>`;
 }
 
 function hvRegionPanel(totals) {
@@ -329,48 +509,66 @@ function hvRegionPanel(totals) {
   const waves = new Set(cells.map(c => c.wave));
   const parts = [...new Set(cells.map(c => c.unit))].filter(u => u !== HV.unit);
   const order = new Map(HV.d.waves.map((w, i) => [w.wave_key, i]));
-  const rows = cells.slice().sort((a, b) => order.get(a.wave) - order.get(b.wave) || a.source.localeCompare(b.source));
+  const rows = cells.slice().sort((a, b) => order.get(a.wave) - order.get(b.wave) || a.source.localeCompare(b.source) || String(a.code).localeCompare(String(b.code)));
   return `<div class="hv-panel-head"><h3>${esc(hvName(HV.unit))}</h3><button type="button" class="btn small" data-clear>Close</button></div>
-    <p><b>${fmt(totals.get(HV.unit))}</b> respondents in ${waves.size} ${waves.size === 1 ? "wave" : "waves"}.${parts.length ? ` <span class="muted">Coded as ${esc(parts.map(hvName).join(", "))} in some waves.</span>` : ""}</p>
+    <p><b>${fmt(totals.get(HV.unit))}</b> respondents in ${waves.size} ${waves.size === 1 ? "wave" : "waves"}.${parts.length ? ` <span class="muted">Coded as ${esc(parts.map(hvName).join(", "))}${cells.some(c => c.unit === HV.unit) ? " in some waves" : ""}.</span>` : ""}</p>
     <p class="muted">Click a source to see how its regions were coded.</p>
-    <div class="hv-scroll"><table class="occ"><thead><tr><th>Year</th><th>Source</th><th>Region variable</th><th>Code</th><th>Label in the file</th><th class="num">Respondents</th></tr></thead>
+    <div class="hv-scroll"><table class="occ"><thead><tr><th>Year</th><th>Source</th><th>Region variable</th><th>Code</th><th>Label in the file</th>${parts.length ? "<th>Coded as</th>" : ""}<th class="num">Respondents</th></tr></thead>
     <tbody>${rows.map(c => `<tr class="row" data-src="${esc(c.source)}" tabindex="0"><td>${esc(hvYear(hvWave(c.wave)))}</td><td>${esc(hvSourceLabel(c.source))}</td>
-      <td>${esc(c.var)}</td><td>${esc(c.code)}</td><td>${hvLabel(c.label)}</td><td class="num">${fmt(c.n)}</td></tr>`).join("")}</tbody></table></div>`;
+      <td>${esc(c.var)}</td><td>${esc(c.code)}</td><td>${hvLabel(c.label)}</td>${parts.length ? `<td>${esc(hvName(c.unit))}</td>` : ""}<td class="num">${fmt(c.n)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 function hvSourcePanel() {
   const rows = HV.d.coding.filter(c => c.source === HV.src);
-  if (!rows.length) { HV.src = null; return HV.unit ? hvRegionPanel(hvTotals(hvCellsInView())) : hvIntroPanel(hvTotals(hvCellsInView())); }
+  const fallback = () => { HV.src = null; return HV.unit ? hvRegionPanel(hvTotals(hvCellsInView())) : !hvIsAll() ? hvWavePanel() : hvIntroPanel(hvTotals(hvCellsInView())); };
+  if (!rows.length) return fallback();
   const w = hvSourceWave(HV.src);
   const vars = [...new Set(rows.map(r => r.var))];
   const used = vars.filter(x => rows.find(r => r.var === x).used);
   const other = vars.filter(x => !used.includes(x));
   const block = name => {
     const list = rows.filter(r => r.var === name);
-    return `<div class="hv-scroll"><table class="occ"><thead><tr><th>Code</th><th>Label in the file</th><th class="num">Respondents</th><th>Coded as</th><th>Why</th></tr></thead>
+    const counted = HV.tl.level && list.some(r => r.unit && hvRegion(r.unit) && hvRegion(r.unit) !== r.unit);
+    return `<div class="hv-scroll"><table class="occ"><thead><tr><th>Code</th><th>Label in the file</th><th class="num">Respondents</th><th>Coded as</th>${counted ? "<th>In this timeline</th>" : ""}<th>Why</th></tr></thead>
       <tbody>${list.map(r => {
         const mine = HV.unit && r.unit && hvRegion(r.unit) === HV.unit;
         const coded = r.unit ? esc(r.unit_name || r.unit) : `<span class="hv-tag">Not coded</span>`;
-        return `<tr${mine ? ' class="on"' : ""}><td>${esc(r.code)}</td><td>${hvLabel(r.label)}</td><td class="num">${fmt(r.n)}</td><td>${coded}</td><td class="hv-why">${esc(r.rationale)}</td></tr>`;
+        const inTl = r.unit && hvRegion(r.unit) ? esc(hvName(hvRegion(r.unit))) : "–";
+        return `<tr${mine ? ' class="on"' : ""}><td>${esc(r.code)}</td><td>${hvLabel(r.label)}</td><td class="num">${fmt(r.n)}</td><td>${coded}</td>${counted ? `<td>${inTl}</td>` : ""}<td class="hv-why">${esc(r.rationale)}</td></tr>`;
       }).join("")}</tbody></table></div>`;
   };
   const head = name => {
     const r = rows.find(x => x.var === name);
     return `<code>${esc(name)}</code> ${esc(r.var_label || "")}`;
   };
-  return `<div class="hv-panel-head"><h3>How ${esc(hvSourceLabel(HV.src))}${w ? `, ${esc(hvYear(w))},` : ""} was coded</h3><button type="button" class="btn small" data-back>${HV.unit ? `Back to ${esc(hvName(HV.unit))}` : "Close"}</button></div>
-    ${w ? `<dl class="hv-meta">
-      <dt>File</dt><dd>${esc(w.file)}${w.study ? ` (study ${esc(w.study)})` : ""}</dd>
-      <dt>Fieldwork</dt><dd>${esc(w.date_min)} to ${esc(w.date_max)}, from the ${esc(w.date_basis)}</dd>
-      <dt>Item</dt><dd><code>${esc(w.variable)}</code>, ${esc(w.question_ref)}${w.questionnaire_url ? ` · <a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : ""}</dd>
-    </dl>` : ""}
+  const backTo = HV.unit ? `Back to ${esc(hvName(HV.unit))}` : !hvIsAll() ? "Back to the wave" : "Close";
+  return `<div class="hv-panel-head"><h3>How ${esc(hvSourceLabel(HV.src))}${w ? `, ${esc(hvYear(w))},` : ""} coded its regions</h3><button type="button" class="btn small" data-back>${backTo}</button></div>
+    ${w ? `<p class="muted">${esc(w.file)}${w.study ? `, study ${esc(w.study)}` : ""}. Fieldwork ${esc(w.date_min)} to ${esc(w.date_max)}.</p>` : ""}
     ${used.map(n => `<h4>${head(n)} <span class="hv-tag used">Used for the map</span></h4>${block(n)}`).join("")}
     ${other.length ? `<details class="hv-more"><summary>${other.length} other region ${other.length === 1 ? "variable" : "variables"} in this source, not used for the map</summary>
       ${other.map(n => `<h4>${head(n)}</h4>${block(n)}`).join("")}</details>` : ""}`;
 }
 
+/* Every question in the selected harmonization, wave by wave, so differences between versions show. */
+function hvQuestions() {
+  const waves = hvTlWaves();
+  const fields = ["wording", "scale", "presentation", "dk_presentation", "mode", "definition"];
+  const heads = { wording: "Wording", scale: "Answers offered", presentation: "How it is asked", dk_presentation: "Don't know", mode: "Mode", definition: "Definitions given" };
+  const versions = f => new Set(waves.map(w => w[f])).size;
+  const summary = fields.filter(f => versions(f) > 1).map(f => `${heads[f].toLowerCase()} ${versions(f)}`).join(", ");
+  const rows = waves.map((w, i) => {
+    const prev = waves[i - 1];
+    const cells = fields.map(f => `<td class="${prev && prev[f] !== w[f] ? "hv-diff" : ""}">${esc(w[f])}</td>`).join("");
+    return `<tr class="row${w.wave_key === HV.wave ? " on" : ""}" data-qwave="${esc(w.wave_key)}" tabindex="0"><td>${esc(hvYear(w))}</td><td>${esc(hvWaveLabel(w))}</td><td>${esc(w.question_id)}.${esc(w.item_no)}, p. ${esc(w.page)}</td><td><code>${esc(w.variable)}</code></td>${cells}</tr>`;
+  }).join("");
+  return `<section class="card hv-qs"><h3>Every question in this timeline</h3>
+    <p class="muted">${waves.length} waves. ${summary ? `Versions across them: ${esc(summary)}. ` : ""}Highlighted cells differ from the wave before. Click a wave for how its answers were coded.</p>
+    <div class="hv-scroll"><table class="occ hv-qtable"><thead><tr><th>Year</th><th>Wave</th><th>Question</th><th>Variable</th>${fields.map(f => `<th>${esc(heads[f])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+}
+
 function hvNotCoded() {
-  const rows = hvList(HV.d.not_coded).filter(r => hvIsAll() || r.wave === HV.wave);
+  const k = new Set(hvTlWaveKeys());
+  const rows = hvList(HV.d.not_coded).filter(r => k.has(r.wave) && (hvIsAll() || r.wave === HV.wave));
   const total = rows.reduce((a, r) => a + r.n, 0);
   if (!rows.length) return `<section class="card hv-off"><h3>Not on the map</h3><p class="muted">Every respondent in this view has a region on the map.</p></section>`;
   return `<section class="card hv-off"><h3>Not on the map: could not be coded <span class="hv-tag">${fmt(total)} respondents</span></h3>
@@ -388,7 +586,7 @@ function hvRegionTable(totals) {
 
 /* ---------- events ---------- */
 function hvSetWave(key) {
-  HV.wave = key; HV.src = null;
+  HV.wave = key; HV.src = null; HV.unit = null;
   const t = $("#hvTime");
   if (t) t.classList.toggle("idle", hvIsAll());
   const all = $("#hvAllWaves");
@@ -396,8 +594,24 @@ function hvSetWave(key) {
   const now = $("#hvNow");
   if (now) now.textContent = hvNowText();
   const sl = $("#hvSlider");
-  if (sl) sl.setAttribute("aria-valuetext", hvNowText());
+  if (sl) {
+    sl.setAttribute("aria-valuetext", hvNowText());
+    const i = hvTlWaves().findIndex(w => w.wave_key === key);
+    if (i >= 0) sl.value = i;
+  }
   hvRedrawBody();
+}
+
+function hvPick(id, wave) {
+  const same = id === HV.t;
+  if (!same) {
+    HV.unit = null; HV.src = null;
+    if (wave) HV.wave = wave;
+    hvSelectTimeline(id);
+    hvDraw();
+    return;
+  }
+  if (wave) hvSetWave(wave);
 }
 
 function hvHoverRegion(region) {
@@ -409,6 +623,12 @@ function hvHoverRegion(region) {
 
 function hvBind(root) {
   const act = target => {
+    const dot = target.closest(".hv-dot");
+    if (dot) { tipAt(null, null); hvPick(dot.closest(".hv-tl-row").dataset.timeline, dot.dataset.wave); return true; }
+    const pick = target.closest("[data-timeline]");
+    if (pick) { hvPick(pick.dataset.timeline, null); return true; }
+    const qw = target.closest("[data-qwave]");
+    if (qw) { hvSetWave(qw.dataset.qwave); return true; }
     const region = target.closest("[data-region], [data-goregion]");
     if (region) { tipAt(null, null); location.hash = hvHref({ r: region.dataset.region || region.dataset.goregion }).slice(1); return true; }
     const country = target.closest("[data-country]");
@@ -421,21 +641,32 @@ function hvBind(root) {
   };
   root.addEventListener("click", e => {
     if (e.target.closest("summary, a")) return;
+    if (e.target.closest("#hvAllWaves, #hvCloseWave")) return hvSetWave("all");
     if (act(e.target)) return;
-    if (e.target.closest("#hvAllWaves")) return hvSetWave("all");
     if (e.target.closest("[data-back]")) { HV.src = null; return hvRedrawBody(); }
     if (e.target.closest("[data-clear]")) { HV.unit = null; HV.src = null; return hvRedrawBody(); }
   });
   root.addEventListener("keydown", e => {
-    if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-unit], [data-src], [data-country], [data-goregion]")) { e.preventDefault(); act(e.target); }
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-unit], [data-src]:not(button), [data-country], [data-goregion], [data-qwave]")) { e.preventDefault(); act(e.target); }
   });
   root.addEventListener("input", e => {
-    if (e.target.id === "hvSlider") hvSetWave(HV.d.waves[+e.target.value].wave_key);
+    if (e.target.id === "hvSlider") hvSetWave(hvTlWaves()[+e.target.value].wave_key);
   });
   root.addEventListener("change", e => {
     if (e.target.id === "hvVar") { HV.varId = e.target.value; location.hash = hvHref().slice(1); }
   });
   root.addEventListener("mousemove", e => {
+    const d = e.target.closest(".hv-dot");
+    if (d) {
+      const w = hvWave(d.dataset.wave), t = hvTimelines().find(x => x.id === d.closest(".hv-tl-row").dataset.timeline);
+      const changes = hvChangeTexts(hvFlagKinds(hvChangesAt(t, w.wave_key)));
+      return tipAt(e, `<b>${esc(hvWaveLabel(w))}, ${esc(hvMonth(w))}</b>${fmt(w.n)} respondents, ${esc(w.fine_units)} regions coded${changes.length ? `<br>${changes.map(esc).join("<br>")}` : ""}`);
+    }
+    const c = e.target.closest("[data-codedwave]");
+    if (c) {
+      const w = hvWave(c.dataset.codedwave);
+      return tipAt(e, `<b>${esc(hvWaveLabel(w))}, ${esc(hvYear(w))}</b>${esc(w.fine_units)} regions${w.coded_level ? ` at ${esc(w.coded_level)}` : ""}`);
+    }
     const u = e.target.closest("path[data-unit]");
     if (u) {
       const n = hvTotals(hvCellsInView()).get(u.dataset.unit) || 0;
