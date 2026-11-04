@@ -31,10 +31,11 @@ saved with (`id`, `dataBuilt`); distributions by overview file name and variable
 checks the structure, matches questions by id (same build) or key (other builds), and reports
 questions or distributions that no longer exist.
 
-6. follow the coding (**Harmonized variables** tab): a map per harmonized variable. Click a region to see the source data
-   that make it up and how many respondents each holds, then click a source to see how its region codes were coded. Codes that
-   could not be coded stay off the map and are listed with their label. Its data (`site/data/harmonized/`) comes from the survey
-   harmonization project, as aggregates with no respondent-level rows.
+6. follow the coding (**Harmonized variables** tab): a world map, from which you click into a region, a country and its
+   subnational regions, with a slider through the country's waves. Click a region to see the source data that make it up and how
+   many respondents each holds, then click a source to see how its region codes were coded. Codes that could not be coded stay
+   off the map and are listed with their label. Its data (`site/data/harmonized/`) comes from the survey harmonization project,
+   as aggregates with no respondent-level rows, and is uploaded by `deploy_data.ps1` when present.
 
 It is a static website: plain HTML/JS with pre-built, gzipped JSON data. There is no server
 process, so it opens quickly and costs almost nothing to host. Search runs in the browser

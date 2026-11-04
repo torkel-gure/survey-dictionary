@@ -14,6 +14,8 @@ Push-Location $data
 try {
   # shards first, then the index + meta, so visitors never get an index that points at missing shards
   Invoke-Gcloud storage cp -r q "$bucket/data/"
+  # the Harmonized variables tab, built by the survey harmonization project: a short cache, since meta's stamp does not version it
+  if (Test-Path harmonized) { Invoke-Gcloud storage cp -r harmonized "$bucket/data/" --cache-control="public, max-age=300" }
   Invoke-Gcloud storage cp index.json.gz keys.json.gz "$bucket/data/"
   # meta.json.gz carries the build stamp that versions every other file, so it must never be cached
   Invoke-Gcloud storage cp meta.json.gz "$bucket/data/" --cache-control=no-cache
