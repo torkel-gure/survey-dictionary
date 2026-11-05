@@ -131,6 +131,7 @@ function hvSelectTimeline(id) {
 
 function hvSync() {
   const p = {};
+  if (HV.level === "export") p.x = 1;
   if (HV.level === "region") p.r = HV.region;
   if (HV.level === "country") {
     p.c = HV.iso;
@@ -153,7 +154,10 @@ async function renderHarmonized(p) {
     HV.unit = HV.src = null;
     HV.wave = "all";
     HV.tl = null;
-    if (iso && hvTotalsOfVar().some(t => t.iso3 === iso)) {
+    if (p.get("x")) {
+      HV.level = "export"; HV.iso = null; HV.region = null;
+      await hxEnter(iso, p.get("t"), p.get("r"));
+    } else if (iso && hvTotalsOfVar().some(t => t.iso3 === iso)) {
       HV.level = "country"; HV.iso = iso; HV.region = hvCountryRegion(iso);
       await hvLoadCountry();
       if (hvWave(p.get("w"))) HV.wave = p.get("w");
@@ -181,6 +185,17 @@ async function renderHarmonized(p) {
 /* ---------- page ---------- */
 function hvDraw(refocus) {
   const root = $("#harmonizedView");
+  if (HV.level === "export") {
+    root.innerHTML = `<div class="hv-wrap">
+      <div class="pi-head"><h2>Export harmonized data</h2>
+        <p class="muted">Pick the variables, countries and timelines you want. You get the data, one item and answer mapping, and one region mapping per country.</p></div>
+      <nav class="hv-crumbs hx-crumbs" aria-label="Where you are"><a href="${hvHref()}">World</a> <span aria-hidden="true">›</span> <b>Export data</b></nav>
+      <div id="hxBody">${hxBody()}</div>
+    </div>`;
+    hvSync();
+    hxRefresh();
+    return;
+  }
   const body = HV.level === "country"
     ? `${hvTimelineChart()}${hvTimelineCard()}<div id="hvBody">${hvCountryBody()}</div>`
     : hvWorldBody();
@@ -216,6 +231,7 @@ function hvControls() {
     <label class="field"><span>Country</span>
       <select id="hvCountryPick"><option value="">Choose a country</option>${countryGroups}</select></label>
     <nav class="hv-crumbs" aria-label="Where you are">${crumbs.join(` <span aria-hidden="true">›</span> `)}</nav>
+    <a class="btn" id="hvExport" href="${hvHref({ x: 1, ...(HV.level === "country" ? { c: HV.iso, t: HV.t } : HV.level === "region" ? { r: HV.region } : {}) })}">Export data</a>
   </div>`;
 }
 
@@ -677,6 +693,7 @@ function hvBind(root) {
   };
   root.addEventListener("click", e => {
     if (e.target.closest("summary, a")) return;
+    if (e.target.closest("[data-hxview], [data-hxdo], #hxDownload")) { hxOnClick(e.target); return; }
     if (e.target.closest("#hvAllWaves, #hvCloseWave")) return hvSetWave("all");
     if (act(e.target)) return;
     if (e.target.closest("[data-back]")) { HV.src = null; return hvRedrawBody(); }
@@ -688,7 +705,15 @@ function hvBind(root) {
   root.addEventListener("input", e => {
     if (e.target.id === "hvSlider") hvSetWave(hvTlWaves()[+e.target.value].wave_key);
   });
+  // Remembers which countries are folded on the export page: the toggle event does not bubble.
+  root.addEventListener("toggle", e => {
+    const b = e.target.dataset && e.target.dataset.hxblock;
+    if (!b) return;
+    (e.target.open ? HX.opened : HX.closed).add(b);
+    (e.target.open ? HX.closed : HX.opened).delete(b);
+  }, true);
   root.addEventListener("change", e => {
+    if (hxOnChange(e.target)) return;
     if (["hvVar", "hvRegionPick", "hvCountryPick"].includes(e.target.id)) HV.refocus = `#${e.target.id}`;
     if (e.target.id === "hvVar") {
       HV.varId = e.target.value;

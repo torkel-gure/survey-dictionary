@@ -465,3 +465,22 @@ html.gate-locked body > *:not(.gate) { display: none !important; }
 .gate-card p { margin: 0; }
 .gate-card p.err:empty { display: none; }
 .gate-card input { box-sizing: border-box; width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); color: var(--text); }
+/* Export of harmonized data (harmonized_export.js) */
+#hvExport { margin-left: auto; align-self: flex-end; text-decoration: none; color: var(--text); }
+.hx-crumbs { display: block; margin: 0 0 10px; }
+.hx-step { margin-top: 12px; }
+.hx-step h3 { margin: 0 0 6px; }
+.hx-step h4 { margin: 12px 0 4px; font-size: 13px; }
+.hx-step > p { margin: 0 0 8px; }
+.hx-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; }
+.hx-checks { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.hx-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.hx-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.hx-head .hx-actions { margin-bottom: 0; }
+.hx-country { border-top: 1px solid var(--border); padding: 8px 0; }
+.hx-country summary { cursor: pointer; }
+.hx-country label { cursor: pointer; }
+.hx-files tr.on td { background: var(--accent-soft); }
+.hx-download { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 12px 0 8px; }
+.hx-preview table { white-space: nowrap; font-size: 12px; }
+.hx-preview td { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
