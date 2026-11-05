@@ -166,7 +166,12 @@ async function renderHarmonized(p) {
       HV.level = "world"; HV.region = null; HV.iso = null;
     }
     if (!HV.bound) { hvBind(root); HV.bound = true; }
-    hvDraw();
+    hvDraw(HV.refocus);
+    HV.refocus = null;
+    // Going to another place starts at the top: the lists can sit far down the page.
+    const place = [HV.level, HV.region, HV.iso].join("|");
+    if (HV.place && HV.place !== place) window.scrollTo(0, 0);
+    HV.place = place;
   } catch (e) {
     console.error(e);
     root.innerHTML = `<div class="hv-wrap"><p class="err">Could not load the harmonized variables (${esc(e.message)}).</p></div>`;
@@ -181,7 +186,7 @@ function hvDraw(refocus) {
     : hvWorldBody();
   root.innerHTML = `<div class="hv-wrap">
     <div class="pi-head"><h2>Harmonized variables</h2>
-      <p class="muted">The harmonized time series so far, and how they were coded. Click through from the world to a country to see its timelines.</p></div>
+      <p class="muted">The harmonized time series so far, and how they were coded. Choose a country from the lists, or click through the maps, to see its timelines.</p></div>
     ${hvControls()}
     ${hvVariableCard()}
     ${body}
@@ -197,11 +202,39 @@ function hvControls() {
   if (HV.region) crumbs.push(HV.level === "region" ? `<b>${esc(HV.region)}</b>` : `<a href="${hvHref({ r: HV.region })}">${esc(HV.region)}</a>`);
   if (HV.level === "country") crumbs.push(`<b>${esc(hvCountryName(HV.iso))}</b>`);
   if (HV.level === "world") crumbs[0] = `<b>World</b>`;
+  const regions = hvList(HV.world.regions).map(r => r.region).sort((a, b) => a.localeCompare(b));
+  const withData = new Set(hvTotalsOfVar().map(t => t.iso3));
+  const countryGroups = regions.map(r => {
+    const cs = HV.world.countries.filter(c => c.region === r).sort((a, b) => withData.has(b.iso3) - withData.has(a.iso3) || a.name.localeCompare(b.name));
+    return `<optgroup label="${esc(r)}">${cs.map(c => `<option value="${esc(c.iso3)}"${withData.has(c.iso3) ? "" : " disabled"}${c.iso3 === HV.iso ? " selected" : ""}>${esc(c.name)}${withData.has(c.iso3) ? "" : " (no data yet)"}</option>`).join("")}</optgroup>`;
+  }).join("");
   return `<div class="hv-controls">
     <label class="field"><span>Variable</span>
       <select id="hvVar">${vars.map(x => `<option value="${esc(x.id)}"${x.id === HV.varId ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    <label class="field"><span>World region</span>
+      <select id="hvRegionPick"><option value="">All regions</option>${regions.map(r => `<option value="${esc(r)}"${r === HV.region ? " selected" : ""}>${esc(r)}</option>`).join("")}</select></label>
+    <label class="field"><span>Country</span>
+      <select id="hvCountryPick"><option value="">Choose a country</option>${countryGroups}</select></label>
     <nav class="hv-crumbs" aria-label="Where you are">${crumbs.join(` <span aria-hidden="true">›</span> `)}</nav>
   </div>`;
+}
+
+/* Regions and countries as a list, for anyone who would rather not click the map. */
+function hvBrowse(byIso) {
+  const inRegion = HV.level === "region";
+  const regionTotal = r => hvTotalsOfVar().filter(t => hvCountryRegion(t.iso3) === r).reduce((a, t) => a + t.n, 0);
+  const regions = (inRegion ? [HV.region] : hvList(HV.world.regions).map(r => r.region))
+    .sort((a, b) => regionTotal(b) - regionTotal(a) || a.localeCompare(b));
+  const col = r => {
+    const cs = HV.world.countries.filter(c => c.region === r).sort((a, b) => byIso.has(b.iso3) - byIso.has(a.iso3) || a.name.localeCompare(b.name));
+    return `<div class="hv-browse-col">${inRegion ? "" : `<h4><a href="${hvHref({ r })}">${esc(r)}</a></h4>`}
+      <ul>${cs.map(c => byIso.has(c.iso3)
+        ? `<li><a href="${hvHref({ c: c.iso3 })}">${esc(hvCountryName(c.iso3))}</a> <span class="muted">${fmt(byIso.get(c.iso3).n)}</span></li>`
+        : `<li class="hv-nodata">${esc(c.name)}</li>`).join("")}</ul></div>`;
+  };
+  return `<section class="card hv-browse"><h3>${inRegion ? `Countries in ${esc(HV.region)}` : "All regions and countries"}</h3>
+    <p class="muted">Countries with data are links, with their respondents beside them. Grey names have no data yet.</p>
+    <div class="hv-browse-grid${inRegion ? " one" : ""}">${regions.map(col).join("")}</div></section>`;
 }
 
 function hvVariableCard() {
@@ -209,7 +242,8 @@ function hvVariableCard() {
   const t = hvTotalsOfVar();
   const y0 = Math.min(...t.map(x => +x.first_year)), y1 = Math.max(...t.map(x => +x.last_year));
   const versions = +v.wordings === 1 ? "one wording" : `${v.wordings} versions of the wording`;
-  return `<section class="card hv-var"><h3>${esc(v.name)}</h3>
+  const proposed = HV.level === "country" && hvList(HV.d.answers).some(a => a.status === "proposed");
+  return `<section class="card hv-var"><h3>${esc(v.name)}${proposed ? ` <span class="hv-tag">Coding proposed, not yet confirmed</span>` : ""}</h3>
     <p>${esc(v.definition)}.</p>
     <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}, with ${esc(versions)} and ${esc(v.scales)} answer scales. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.${HV.level === "country" ? "" : " Open a country to see every question and how it was coded."}</p></section>`;
 }
@@ -251,7 +285,8 @@ function hvWorldBody() {
       ${hvWorldCredit()}
     </figure>
     <aside class="card hv-panel">${inRegionView ? hvCountryList(byIso) : hvRegionList(regionN, byIso)}</aside>
-  </div>`;
+  </div>
+  ${hvBrowse(byIso)}`;
 }
 
 function hvRegionList(regionN, byIso) {
@@ -380,7 +415,7 @@ function hvTimelineCard() {
   return `<section class="card hv-time${i < 0 ? " idle" : ""}" id="hvTime">
     <div class="hv-tl-now"><h3>${esc(programs.join(" and "))}: ${esc(hvTlTitle(t))}${t.level ? ` (${esc(t.level_label)})` : ""}, ${esc(hvTlYears(t))}</h3>
       <dl class="hv-meta">
-        <dt>Questions</dt><dd>${rel ? esc(rel.rationale) : "One instrument: the same item in every wave of this program."}</dd>
+        <dt>Questions</dt><dd>${rel ? esc(rel.rationale) + (rel.status === "proposed" ? ". This join is proposed, not yet confirmed." : "") : "One instrument: the same item in every wave of this program."}</dd>
         <dt>Geography</dt><dd>${esc(levelText)}</dd>
         <dt>Available as</dt><dd>${hvList(t.forms).map(f => esc(HV_FORMS[f] || f)).join("; ")}</dd>
       </dl></div>
@@ -497,6 +532,7 @@ function hvWavePanel() {
       <dt>Fieldwork</dt><dd>${esc(w.date_min)} to ${esc(w.date_max)}, from the ${esc(w.date_basis)}</dd>
     </dl>
     <h4>What the answers were coded to</h4>
+    ${answers.some(a => a.status === "proposed") ? `<p class="muted">This coding is proposed, not yet confirmed.</p>` : ""}
     <div class="hv-scroll"><table class="occ"><thead><tr><th>Code</th><th>Label in the file</th><th class="num">Respondents</th><th>Coded as</th><th class="num">1 or 0</th><th class="num">Original scale</th><th>Why</th></tr></thead>
       <tbody>${answers.map(a => `<tr><td>${esc(a.code)}</td><td>${hvLabel(a.label)}</td><td class="num">${fmt(a.n)}</td><td>${esc(HV_CODED[a.coded] || a.coded)}</td><td class="num">${leftOut(a.bin)}</td><td class="num">${leftOut(a.orig)}</td><td class="hv-why">${esc(a.why || "")}</td></tr>`).join("")}</tbody></table></div>
     <h4>How its regions were coded</h4>
@@ -653,7 +689,15 @@ function hvBind(root) {
     if (e.target.id === "hvSlider") hvSetWave(hvTlWaves()[+e.target.value].wave_key);
   });
   root.addEventListener("change", e => {
-    if (e.target.id === "hvVar") { HV.varId = e.target.value; location.hash = hvHref().slice(1); }
+    if (["hvVar", "hvRegionPick", "hvCountryPick"].includes(e.target.id)) HV.refocus = `#${e.target.id}`;
+    if (e.target.id === "hvVar") {
+      HV.varId = e.target.value;
+      // A new variable keeps you where you are, if it reaches there.
+      const stay = HV.level === "country" && hvTotalsOfVar().some(t => t.iso3 === HV.iso) ? { c: HV.iso } : HV.region ? { r: HV.region } : {};
+      location.hash = hvHref(stay).slice(1);
+    }
+    if (e.target.id === "hvRegionPick") location.hash = hvHref(e.target.value ? { r: e.target.value } : {}).slice(1);
+    if (e.target.id === "hvCountryPick" && e.target.value) location.hash = hvHref({ c: e.target.value }).slice(1);
   });
   root.addEventListener("mousemove", e => {
     const d = e.target.closest(".hv-dot");
