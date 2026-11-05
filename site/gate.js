@@ -16,6 +16,8 @@
   const isOpen = () => { try { return sessionStorage.getItem(KEY) === HASH; } catch (e) { return false; } };
   const remember = () => { try { sessionStorage.setItem(KEY, HASH); } catch (e) { /* asked again on the next load */ } };
 
+  // data-app in index.html lists app.js last: it starts loading data the moment it runs,
+  // and that data can arrive before a script listed after it has loaded.
   const startApp = () => {
     for (const src of APP) {
       const s = document.createElement("script");
