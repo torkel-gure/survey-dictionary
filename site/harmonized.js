@@ -5,7 +5,7 @@
    were coded; click a region for the source data behind it, and a source for how its region codes were coded.
    Anything with no data is grey; darker blue means more respondents. Region codes that could not be coded stay off
    the map and are listed with their label from the file.
-   Data: data/harmonized/ (aggregates from the survey harmonization project, no respondent-level rows). */
+   Data: data/harmonized/ (aggregates from the survey harmonization project; rows/ holds each respondent's file, row, coded answer and region, and nothing else). */
 
 const HV = {
   index: null, world: null, files: new Map(), bound: false, hoverRegion: null,
