@@ -355,7 +355,8 @@ function hvLevelSeq(t) {
   for (const k of hvList(t.waves)) { const n = hvWave(k).fine_units; if (seq[seq.length - 1] !== n) seq.push(n); }
   return seq;
 }
-const hvTlTitle = t => t.level ? `${t.n_units} regions` : `Finest in each wave`;
+const hvRegionsText = n => `${n} ${n === 1 ? "region" : "regions"}`;
+const hvTlTitle = t => t.level ? hvRegionsText(t.n_units) : `Finest in each wave`;
 const hvTlSub = t => t.level ? t.level_label : `${hvLevelSeq(t).join(", then ")} regions`;
 
 function hvTimelineChart() {
@@ -425,7 +426,7 @@ function hvTimelineCard() {
   const rel = inst.length > 1 ? hvList(HV.d.relations).find(r => inst.includes(r.instrument_a) && inst.includes(r.instrument_b)) : null;
   const seq = hvLevelSeq(t);
   const levelText = t.level
-    ? `${t.n_units} regions at ${t.level_label}. Reaches ${t.n_waves} of ${HV.d.waves.length} waves in ${hvCountryName(HV.iso)}.`
+    ? `${hvRegionsText(t.n_units)} at ${t.level_label}. Reaches ${t.n_waves} of ${HV.d.waves.length} waves in ${hvCountryName(HV.iso)}.`
     : `The finest coding each wave has, so the regions change from ${seq.join(" to ")} along the way. With all waves selected, the map shows regions that stay the same.`;
   let lastYear = null;
   const ticks = waves.map((w, n) => {
@@ -497,7 +498,7 @@ function hvMap(totals) {
   const noShapeN = noShape.reduce((a, id) => a + totals.get(id), 0);
   const off = hvCellsInView().filter(c => !c.unit).reduce((a, c) => a + c.n, 0);
   const w = hvIsAll() ? null : hvWave(HV.wave);
-  const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: ${totals.size} regions` : `All waves in this timeline: ${totals.size} regions`;
+  const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: ${hvRegionsText(totals.size)}` : `All waves in this timeline: ${hvRegionsText(totals.size)}`;
   return `<figure class="card hv-map">
     <figcaption><b>${esc(title)}</b><br><span class="muted">${fmt(onMap)} respondents on the map${noShape.length ? ` · ${fmt(noShapeN)} in ${noShape.length} ${noShape.length === 1 ? "region" : "regions"} with no boundary to draw (listed below)` : ""}${off ? ` · ${fmt(off)} could not be coded (listed below)` : ""}</span></figcaption>
     <svg viewBox="${esc(shapes.view_box)}" role="group" aria-label="Map of ${esc(hvCountryName(HV.iso))}: respondents per region">
@@ -529,7 +530,7 @@ function hvIntroPanel(totals) {
   return `<h3>Click a wave or a region</h3>
     <p>Click a wave on a timeline, or move the slider, to see its question and which answers were coded to what.</p>
     <p>Click a region to see the source data that make it up, then a source to see how its region codes were coded.</p>
-    <p class="muted">${totals.size} regions in this timeline.</p>`;
+    <p class="muted">${hvRegionsText(totals.size)} in this timeline.</p>`;
 }
 
 /* The depth of the coding in one wave: the question as asked, what each answer was coded to, how regions were coded. */
