@@ -491,12 +491,15 @@ function hvMap(totals) {
   regions.sort((a, b) => (a.id === HV.unit) - (b.id === HV.unit));
   const paths = regions.map(r => `<path class="hv-r hv-c${hvClassOf(r.n, sc)}${r.id === HV.unit ? " sel" : ""}" data-unit="${esc(r.id)}" d="${r.d}" tabindex="0" role="button"
       aria-pressed="${r.id === HV.unit}" aria-label="${esc(hvName(r.id))}: ${fmt(r.n)} respondents"></path>`).join("");
-  const onMap = [...totals.values()].reduce((a, b) => a + b, 0);
+  const onMap = regions.reduce((a, r) => a + r.n, 0);
+  // Regions no source gives a boundary for stay off the map and in the table below.
+  const noShape = [...totals.keys()].filter(id => !shapes.paths[id]);
+  const noShapeN = noShape.reduce((a, id) => a + totals.get(id), 0);
   const off = hvCellsInView().filter(c => !c.unit).reduce((a, c) => a + c.n, 0);
   const w = hvIsAll() ? null : hvWave(HV.wave);
   const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: ${totals.size} regions` : `All waves in this timeline: ${totals.size} regions`;
   return `<figure class="card hv-map">
-    <figcaption><b>${esc(title)}</b><br><span class="muted">${fmt(onMap)} respondents on the map${off ? ` · ${fmt(off)} could not be coded (listed below)` : ""}</span></figcaption>
+    <figcaption><b>${esc(title)}</b><br><span class="muted">${fmt(onMap)} respondents on the map${noShape.length ? ` · ${fmt(noShapeN)} in ${noShape.length} ${noShape.length === 1 ? "region" : "regions"} with no boundary to draw (listed below)` : ""}${off ? ` · ${fmt(off)} could not be coded (listed below)` : ""}</span></figcaption>
     <svg viewBox="${esc(shapes.view_box)}" role="group" aria-label="Map of ${esc(hvCountryName(HV.iso))}: respondents per region">
       <path class="hv-base" d="${shapes.outline}"></path>
       ${paths}
@@ -638,7 +641,7 @@ function hvRegionTable(totals) {
   const rows = [...totals.entries()].map(([id, n]) => ({ id, n, name: hvName(id) })).sort((a, b) => a.name.localeCompare(b.name));
   return `<section class="card hv-table"><h3>All regions in this view</h3>
     <div class="hv-scroll"><table class="occ"><thead><tr><th>Region</th><th class="num">Respondents</th></tr></thead>
-    <tbody>${rows.map(r => `<tr class="row${r.id === HV.unit ? " on" : ""}" data-unit="${esc(r.id)}" tabindex="0"><td>${esc(r.name)}</td><td class="num">${fmt(r.n)}</td></tr>`).join("")}</tbody></table></div></section>`;
+    <tbody>${rows.map(r => `<tr class="row${r.id === HV.unit ? " on" : ""}" data-unit="${esc(r.id)}" tabindex="0"><td>${esc(r.name)}${HV.shapes.paths[r.id] ? "" : ` <span class="muted">(no boundary on the map)</span>`}</td><td class="num">${fmt(r.n)}</td></tr>`).join("")}</tbody></table></div></section>`;
 }
 
 /* ---------- events ---------- */
