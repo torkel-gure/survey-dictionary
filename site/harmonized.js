@@ -10,7 +10,7 @@
 const HV = {
   index: null, world: null, files: new Map(), bound: false, hoverRegion: null,
   varId: null, level: "world", region: null, iso: null, t: null, wave: "all", unit: null, src: null,   // what is on screen (kept in the URL)
-  d: null, shapes: null, tl: null, names: new Map(), group: new Map(), levelMaps: new Map(), programs: [], scale: { all: {}, wave: {} },
+  d: null, shapes: null, tl: null, names: new Map(), group: new Map(), drawAs: new Map(), levelMaps: new Map(), programs: [], scale: { all: {}, wave: {} },
 };
 const HV_WORLD_VIEW = { lon_min: -180, lat_min: -58, lon_max: 180, lat_max: 84 };
 const HV_CODED = { pro: "Protectionist", anti: "Not protectionist", dk: "Don't know", refused: "Refused", not_asked: "Not asked", other_missing: "Other missing" };
@@ -41,10 +41,12 @@ const hvMonth = w => new Date(w.date + "T00:00:00Z").toLocaleString("en", { mont
 const hvLabel = x => x ? esc(x) : `<span class="muted">no label in the file</span>`;
 const hvTlWaveKeys = () => hvList(HV.tl.waves);
 const hvTlWaves = () => { const k = new Set(hvTlWaveKeys()); return HV.d.waves.filter(w => k.has(w.wave_key)); };
+// A coded unit with no boundary of its own is drawn as the unit containing it.
+const hvDrawn = unit => HV.drawAs.get(unit) || unit;
 // The region a coded unit counts as in the selected timeline.
 const hvRegion = unit => {
   if (HV.tl && HV.tl.level) return (HV.levelMaps.get(HV.tl.level) || new Map()).get(unit) || null;
-  return hvIsAll() ? (HV.group.get(unit) || unit) : unit;
+  return hvDrawn(hvIsAll() ? (HV.group.get(unit) || unit) : unit);
 };
 const hvCellsInView = () => {
   const k = new Set(hvTlWaveKeys());
@@ -93,11 +95,11 @@ function hvTotals(cells) {
 // One scale for single waves and one for all waves of the selected timeline.
 function hvPrepareScale() {
   const k = new Set(hvTlWaveKeys());
-  const toRegion = u => HV.tl.level ? HV.levelMaps.get(HV.tl.level).get(u) : (HV.group.get(u) || u);
+  const toRegion = u => HV.tl.level ? HV.levelMaps.get(HV.tl.level).get(u) : hvDrawn(HV.group.get(u) || u);
   const perWave = new Map(), perGroup = new Map();
   for (const c of HV.d.cells) {
     if (!c.unit || !k.has(c.wave)) continue;
-    const single = HV.tl.level ? toRegion(c.unit) : c.unit, g = toRegion(c.unit), key = c.wave + "|" + single;
+    const single = HV.tl.level ? toRegion(c.unit) : hvDrawn(c.unit), g = toRegion(c.unit), key = c.wave + "|" + single;
     perWave.set(key, (perWave.get(key) || 0) + c.n);
     perGroup.set(g, (perGroup.get(g) || 0) + c.n);
   }
@@ -110,6 +112,7 @@ async function hvLoadCountry() {
   HV.d = d; HV.shapes = shapes;
   HV.names = new Map(d.units.map(u => [u.id, u.name]));
   HV.group = new Map(d.units.filter(u => u.all_waves).map(u => [u.id, u.all_waves]));
+  HV.drawAs = new Map(d.units.filter(u => u.draw_as).map(u => [u.id, u.draw_as]));
   HV.levelMaps = new Map(hvList(d.levels).map(l => [l.id, new Map(hvList(l.members).map(m => [m.fine, m.unit]))]));
   HV.programs = [...new Set(d.waves.map(w => w.program))];
 }
@@ -258,8 +261,10 @@ function hvVariableCard() {
   const t = hvTotalsOfVar();
   const y0 = Math.min(...t.map(x => +x.first_year)), y1 = Math.max(...t.map(x => +x.last_year));
   const versions = +v.wordings === 1 ? "one wording" : `${v.wordings} versions of the wording`;
-  const proposed = HV.level === "country" && hvList(HV.d.answers).some(a => a.status === "proposed");
-  return `<section class="card hv-var"><h3>${esc(v.name)}${proposed ? ` <span class="hv-tag">Coding proposed, not yet confirmed</span>` : ""}</h3>
+  const answersOpen = HV.level === "country" && hvList(HV.d.answers).some(a => a.status === "proposed");
+  const regionsOpen = HV.level === "country" && hvList(HV.d.coding).some(c => c.status === "proposed");
+  const tag = answersOpen ? "Coding proposed, not yet confirmed" : regionsOpen ? "Region coding proposed, not yet confirmed" : "";
+  return `<section class="card hv-var"><h3>${esc(v.name)}${tag ? ` <span class="hv-tag">${tag}</span>` : ""}</h3>
     <p>${esc(v.definition)}.</p>
     <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}, with ${esc(versions)} and ${esc(v.scales)} answer scales. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.${HV.level === "country" ? "" : " Open a country to see every question and how it was coded."}</p></section>`;
 }

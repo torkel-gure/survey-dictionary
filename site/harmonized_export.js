@@ -125,7 +125,7 @@ function hxRegionTable(country, items) {
       const w = waves.get(key) || {};
       const row = {
         country, program: w.program, wave: w.wave, wave_key: key, date: w.date, source_id: c.source, subsample: c.subsample, region_variable: c.var, region_variable_label: c.var_label,
-        used_in_data: c.used ? "yes" : "no", code: c.code, label_in_file: c.label, respondents_in_source: c.n, unit_id: c.unit, unit_name: c.unit_name, assignment: c.assignment, rule: c.rule, why: c.rationale,
+        used_in_data: c.used ? "yes" : "no", code: c.code, label_in_file: c.label, respondents_in_source: c.n, unit_id: c.unit, unit_name: c.unit_name, assignment: c.assignment, rule: c.rule, why: c.rationale, status: c.status,
       };
       for (const l of levelIds) {
         const u = c.unit ? (maps.get(l) || new Map()).get(c.unit) : null;
@@ -141,7 +141,7 @@ function hxRegionTable(country, items) {
     name: `region_mapping_${country}.csv`,
     what: `How each region code in ${country} was coded`,
     columns: ["country", "program", "wave", "wave_key", "date", "source_id", "subsample", "region_variable", "region_variable_label", "used_in_data", "code", "label_in_file", "respondents_in_source",
-      "unit_id", "unit_name", ...levelIds.flatMap(l => [`unit_${l}`, `unit_${l}_name`]), "assignment", "rule", "why"],
+      "unit_id", "unit_name", ...levelIds.flatMap(l => [`unit_${l}`, `unit_${l}_name`]), "assignment", "rule", "why", "status"],
     rows: out,
   };
 }
@@ -246,7 +246,7 @@ region_mapping_<country>.csv
 One file per country. One row per region code in each source, in the waves of the picked timelines.
 - region_variable, code, label_in_file: the code as it stands in the source file. used_in_data: whether this variable is the one respondents were coded by.
 - unit_id, unit_name: the finest region it was coded to. unit_<level>: the region it counts as at that level. Blank unit_id: it could not be coded.
-- assignment, rule, why: how the assignment was made.
+- assignment, rule, why: how the assignment was made. status: approved or proposed.
 
 respondents.csv
 One row per respondent x timeline. Summing it by timeline, wave and region gives data.csv.
