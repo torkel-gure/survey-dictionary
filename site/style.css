@@ -336,6 +336,28 @@ label.toggle { display: inline-flex; gap: 6px; align-items: center; font-size: 1
   :root:not([data-theme="light"]) { --hv-p0: #3987e5; --hv-p1: #d95926; --hv-1: #b7d3f6; --hv-2: #6da7ec; --hv-3: #3987e5; --hv-4: #256abf; --hv-5: #184f95; --hv-none: #3f3f3b; }
 }
 :root[data-theme="dark"] { --hv-p0: #3987e5; --hv-p1: #d95926; --hv-1: #b7d3f6; --hv-2: #6da7ec; --hv-3: #3987e5; --hv-4: #256abf; --hv-5: #184f95; --hv-none: #3f3f3b; }
+:root { --hv-x1: #2a78d6; --hv-x2: #eb6834; --hv-x3: #1baf7a; --hv-x4: #eda100; --hv-x5: #e87ba4; --hv-x6: #008300; --hv-x7: #6250d6; --hv-x8: #e34948; --hv-xn: #cfcec8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --hv-x1: #3987e5; --hv-x2: #d95926; --hv-x3: #199e70; --hv-x4: #c98500; --hv-x5: #d55181; --hv-x6: #008300; --hv-x7: #9085e9; --hv-x8: #e66767; --hv-xn: #6a6a64; }
+}
+:root[data-theme="dark"] { --hv-x1: #3987e5; --hv-x2: #d95926; --hv-x3: #199e70; --hv-x4: #c98500; --hv-x5: #d55181; --hv-x6: #008300; --hv-x7: #9085e9; --hv-x8: #e66767; --hv-xn: #6a6a64; }
+.hv-changes { margin-top: 16px; }
+.hv-changes h3 { margin: 0 0 4px; }
+.hv-xblock { margin-top: 14px; border-top: 1px solid var(--border, #8884); padding-top: 10px; }
+.hv-xblock summary { cursor: pointer; }
+.hv-xopen { margin-left: 8px; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.hv-xmaps { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 12px 0; }
+.hv-xmap { margin: 0; min-width: 0; }
+.hv-xmap figcaption { font-size: 13px; min-height: 92px; }
+.hv-xmap figcaption b, .hv-xmap figcaption span { display: block; }
+.hv-xmap svg { display: block; width: 100%; max-height: 340px; }
+.hv-x { fill-rule: evenodd; stroke: var(--surface); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+path.hv-x1 { fill: var(--hv-x1); } path.hv-x2 { fill: var(--hv-x2); } path.hv-x3 { fill: var(--hv-x3); } path.hv-x4 { fill: var(--hv-x4); }
+path.hv-x5 { fill: var(--hv-x5); } path.hv-x6 { fill: var(--hv-x6); } path.hv-x7 { fill: var(--hv-x7); } path.hv-x8 { fill: var(--hv-x8); } path.hv-xn { fill: var(--hv-xn); }
+.hv-xl { fill: none; fill-rule: evenodd; stroke: var(--text); stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; pointer-events: none; }
+.hv-xt { fill: var(--text); stroke: var(--surface); paint-order: stroke; stroke-linejoin: round; text-anchor: middle; dominant-baseline: middle; font-weight: 600; pointer-events: none; }
+.hv-xland, .hv-xnotes { font-size: 13.5px; max-width: 90ch; margin: 6px 0; }
+.hv-xnotes { padding-left: 18px; }
 .harmonized { padding: 24px; }
 .hv-wrap { max-width: 1320px; margin: 0 auto; }
 .hv-controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-end; margin-bottom: 14px; }

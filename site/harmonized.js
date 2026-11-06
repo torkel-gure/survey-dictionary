@@ -45,9 +45,18 @@ const hvTlWaves = () => { const k = new Set(hvTlWaveKeys()); return HV.d.waves.f
 const hvDrawn = unit => HV.drawAs.get(unit) || unit;
 // The region a coded unit counts as in the selected timeline.
 const hvRegion = unit => {
-  if (HV.tl && HV.tl.level) return (HV.levelMaps.get(HV.tl.level) || new Map()).get(unit) || null;
+  if (HV.tl && HV.tl.level) {
+    const r = (HV.levelMaps.get(HV.tl.level) || new Map()).get(unit) || null;
+    return r && hvIsAll() ? hvTlGroup(r) : r;
+  }
   return hvDrawn(hvIsAll() ? (HV.group.get(unit) || unit) : unit);
 };
+// When a level's regions change along a timeline, the "all waves" map joins the regions that overlap.
+function hvTlGroup(region) {
+  const t = HV.tl;
+  if (!t._groups) t._groups = new Map(hvList(t.all_waves).map(x => [x.unit, x.group]));
+  return t._groups.get(region) || region;
+}
 const hvCellsInView = () => {
   const k = new Set(hvTlWaveKeys());
   return HV.d.cells.filter(c => k.has(c.wave) && (hvIsAll() || c.wave === HV.wave));
@@ -99,7 +108,8 @@ function hvPrepareScale() {
   const perWave = new Map(), perGroup = new Map();
   for (const c of HV.d.cells) {
     if (!c.unit || !k.has(c.wave)) continue;
-    const single = HV.tl.level ? toRegion(c.unit) : hvDrawn(c.unit), g = toRegion(c.unit), key = c.wave + "|" + single;
+    const single = HV.tl.level ? toRegion(c.unit) : hvDrawn(c.unit), key = c.wave + "|" + single;
+    const g = HV.tl.level ? hvTlGroup(toRegion(c.unit)) : toRegion(c.unit);
     perWave.set(key, (perWave.get(key) || 0) + c.n);
     perGroup.set(g, (perGroup.get(g) || 0) + c.n);
   }
@@ -331,8 +341,8 @@ function hvCountryList(byIso) {
 
 function hvWorldCredit() {
   const rows = HV.world.countries.slice().sort((a, b) => a.name.localeCompare(b.name));
-  return `<details class="hv-credit muted"><summary>Boundaries: <a href="https://www.geoboundaries.org/" rel="noopener">geoBoundaries</a>. Sources and licenses by country</summary>
-    <p>Boundaries and names come from geoBoundaries and imply no position on disputed territory. Regions are the continents geoBoundaries gives each country.</p>
+  return `<details class="hv-credit muted"><summary>Boundaries: <a href="https://www.geoboundaries.org/" rel="noopener">geoBoundaries</a> and <a href="https://ec.europa.eu/eurostat/web/gisco/geodata/statistical-units" rel="noopener">Eurostat GISCO</a>. © EuroGeographics for the administrative boundaries. Sources and licenses by country</summary>
+    <p>World boundaries and names come from geoBoundaries and imply no position on disputed territory. Regions are the continents geoBoundaries gives each country. Some regional boundaries in Europe come from Eurostat GISCO, each named on its country's map.</p>
     <ul>${rows.map(c => `<li>${esc(c.name)}: ${esc(c.source)}. ${esc(c.license)}.</li>`).join("")}</ul></details>`;
 }
 
@@ -425,8 +435,12 @@ function hvTimelineCard() {
   const inst = hvList(t.instruments);
   const rel = inst.length > 1 ? hvList(HV.d.relations).find(r => inst.includes(r.instrument_a) && inst.includes(r.instrument_b)) : null;
   const seq = hvLevelSeq(t);
-  const levelText = t.level
-    ? `${hvRegionsText(t.n_units)} at ${t.level_label}. Reaches ${t.n_waves} of ${HV.d.waves.length} waves in ${hvCountryName(HV.iso)}.`
+  const joined = t.scheme === "stable";
+  const changing = hvList(t.all_waves).length > 0;
+  const levelText = joined
+    ? `${hvRegionsText(t.n_units)}. Regions that changed between waves are joined, and the rest stay at their lowest level, so the same area is compared in all ${t.n_waves} waves.`
+    : t.level
+    ? `${hvRegionsText(t.n_units)} at ${t.level_label}. Reaches ${t.n_waves} of ${HV.d.waves.length} waves in ${hvCountryName(HV.iso)}.${changing ? " Some regions change along the way, so they are not the same area in every wave. With all waves selected, the map joins them." : ""}`
     : `The finest coding each wave has, so the regions change from ${seq.join(" to ")} along the way. With all waves selected, the map shows regions that stay the same.`;
   let lastYear = null;
   const ticks = waves.map((w, n) => {
@@ -470,6 +484,7 @@ function hvCountryBody() {
       ${hvMap(totals)}
       <aside class="card hv-panel" aria-live="polite">${panel}</aside>
     </div>
+    ${hvChangesCard()}
     ${hvQuestions()}
     ${hvNotCoded()}
     ${hvRegionTable(totals)}`;
@@ -522,8 +537,81 @@ function hvLegend(sc, none) {
 }
 
 function hvCredit() {
-  const c = HV.shapes.credit || {};
-  return `<p class="hv-credit muted">Boundaries: <a href="${esc(c.url)}" rel="noopener">geoBoundaries</a> ${esc(c.boundary_id)}, ${esc(c.source)} (${esc(c.year)}). ${esc(c.license)}. ${esc(HV.index.note || "")}</p>`;
+  const parts = hvList(HV.shapes.credits).map(c => /^Eurostat/.test(c.source)
+    ? `<a href="${esc(c.license_url)}" rel="noopener">${esc(c.source)}</a>. ${esc(c.license)}.`
+    : `<a href="${esc(c.url)}" rel="noopener">geoBoundaries</a> ${esc(c.boundary_id)}, ${esc(c.source)} (${esc(c.year)}). ${esc(c.license)}.`);
+  return `<p class="hv-credit muted">Boundaries: ${[...new Set(parts)].join(" ")} ${esc(HV.index.note || "")}</p>`;
+}
+
+/* ---------- how the regions changed ---------- */
+const HV_X_HUES = 7; // the eighth hue marks a region split by the change
+const hvXWaves = list => {
+  const w = hvList(list).map(k => String(k).replace(":", " "));
+  return !w.length ? "No wave" : w.length === 1 ? w[0] : `${w[0]} to ${w[w.length - 1]}`;
+};
+const hvXShort = name => String(name).replace(/\s*\(.*$/, "");
+function hvXMap(title, sub, box, items, lines, labels) {
+  const { paths, outline } = HV.shapes;
+  const fills = items.filter(i => paths[i.id]).map(i => `<path class="hv-x ${i.cls}" d="${paths[i.id]}"><title>${esc(i.title || i.name)}</title></path>`).join("");
+  const edge = lines.filter(id => paths[id]).map(id => `<path class="hv-xl" d="${paths[id]}"></path>`).join("");
+  const w = +String(box).split(" ")[2], fs = (w / 20).toFixed(1);
+  const shown = items.filter(i => paths[i.id] && labels[i.id]);
+  const text = shown.length <= 14 ? shown.map(i => {
+    const [x, y] = labels[i.id];
+    return `<text class="hv-xt" x="${x}" y="${y}" font-size="${fs}" style="stroke-width:${(fs / 4).toFixed(1)}">${esc(i.label || hvXShort(i.name))}</text>`;
+  }).join("") : "";
+  return `<figure class="hv-xmap"><figcaption><b>${esc(title)}</b><span class="muted">${esc(sub)}</span></figcaption>
+    <svg viewBox="${esc(box)}" role="img" aria-label="${esc(title)}: ${esc(items.map(i => i.name).join(", "))}"><path class="hv-base" d="${outline}"></path>${fills}${edge}${text}</svg></figure>`;
+}
+function hvXBlock(g) {
+  const before = hvList(g.before), after = hvList(g.after), groups = hvList(g.groups);
+  const labels = g.labels || {};
+  const nameOf = new Map([...before, ...after].map(u => [u.id, u.name]));
+  // Colors follow the new regions; with too many of them, the areas a timeline keeps.
+  const byGroup = after.length > HV_X_HUES;
+  const groupIndex = new Map(groups.map((x, i) => [x.id, i]));
+  const groupOf = new Map();
+  for (const x of groups) for (const u of [...hvList(x.after), ...hvList(x.before)]) groupOf.set(u, x.id);
+  const hue = i => `hv-x${(i % HV_X_HUES) + 1}`;
+  const afterHue = id => byGroup ? hue(groupIndex.get(groupOf.get(id)) || 0) : hue(after.findIndex(u => u.id === id));
+  const beforeItems = before.map(u => {
+    const moves = hvList(u.moves);
+    const whole = moves.length && moves[0].share >= 0.85;
+    const cls = byGroup ? hue(groupIndex.get(groupOf.get(u.id)) || 0) : whole ? afterHue(moves[0].to) : "hv-x8";
+    return { id: u.id, name: u.name, cls, title: u.name + (moves.length ? ": " + moves.map(m => `${Math.round(m.share * 100)}% in ${nameOf.get(m.to) || m.to}`).join(", ") : "") };
+  });
+  const afterItems = after.map(u => ({ id: u.id, name: u.name, cls: afterHue(u.id) }));
+  let hueAt = 0;
+  const groupItems = groups.map(x => {
+    const n = hvList(x.after).length + hvList(x.before).length;
+    return { id: x.id, name: x.name, cls: x.joined ? hue(hueAt++) : "hv-xn", label: x.joined && x.name.length > 26 ? `${hvList(x.after).length} regions joined` : hvXShort(x.name), n };
+  });
+  const box = g.box;
+  const split = before.filter(u => hvList(u.moves).length > 1);
+  const open = hvList(g.events).some(e => e.status === "needs_decision");
+  const year = String(g.date).slice(0, 4);
+  const maps = !box ? `<p class="muted">No boundary to draw for these regions.</p>` : `<div class="hv-xmaps">
+      ${hvXMap(`Before: ${hvRegionsText(before.length)}`, hvXWaves(g.waves_before), box, beforeItems, [], labels)}
+      ${hvXMap(`After: ${hvRegionsText(after.length)}`, hvXWaves(g.waves_after), box, afterItems, [], labels)}
+      ${hvXMap("What moved", "The new regions, with the old lines drawn over them.", box, afterItems.map(i => ({ ...i, label: " " })), before.map(u => u.id), {})}
+      ${hvXMap(`Across the change: ${groups.length} ${groups.length === 1 ? "area" : "areas"}`, "What a timeline across this change keeps here. Colored areas are joined regions. The rest of the country stays as it is.", box, groupItems, [], labels)}
+    </div>`;
+  // A timeline crosses the change if it holds waves from both sides of it.
+  const crossing = hvTimelines().filter(t => t.level && hvList(g.waves_before).some(k => hvList(t.waves).includes(k)) && hvList(g.waves_after).some(k => hvList(t.waves).includes(k)))
+    .sort((a, b) => (b.scheme === "stable") - (a.scheme === "stable") || b.n_waves - a.n_waves)[0];
+  return `<details class="hv-xblock" open><summary><b>${esc(year)}: ${esc(hvRegionsText(before.length))} become ${after.length}</b>${open ? ` <span class="hv-xopen">Open: needs your decision</span>` : ""}</summary>
+    ${maps}
+    ${!byGroup && split.length ? `<p class="hv-xland"><b>By land:</b> ${split.map(u => `${esc(hvXShort(u.name))}: ${hvList(u.moves).map(m => `${Math.round(m.share * 100)}% in ${esc(hvXShort(nameOf.get(m.to) || m.to))}`).join(", ")}`).join("; ")}. From the boundary files, so land and not people.</p>` : ""}
+    <p class="hv-xland">${crossing ? `Timeline across this change: <a href="${hvHref({ c: HV.iso, t: crossing.id })}">${esc(hvRegionsText(crossing.n_units))}, ${esc(hvTlYears(crossing))}</a>.` : "No timeline crosses this change yet, because the waves on its two sides lie more than 5 years apart."}</p>
+    <ul class="hv-xnotes">${hvList(g.events).map(e => `<li>${esc(e.notes)}</li>`).join("")}</ul>
+  </details>`;
+}
+function hvChangesCard() {
+  const list = hvList(HV.shapes.changes);
+  if (!list.length) return "";
+  return `<section class="card hv-changes"><h3>How the regions changed in ${esc(hvCountryName(HV.iso))}</h3>
+    <p class="muted">Changes that move people between regions. Gray means the same region before and after. Hover over a region for its name.</p>
+    ${list.map(hvXBlock).join("")}</section>`;
 }
 
 function hvIntroPanel(totals) {
