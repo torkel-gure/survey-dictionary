@@ -128,12 +128,13 @@ async function hvLoadCountry() {
 }
 
 const hvTimelines = () => hvList(HV.d.timelines);
-// Opens on the timeline with the most waves; between equals, the most detailed level, and a fixed level before a mixed one.
+// Opens on a fixed level before a mixed one, because a mixed timeline can leave only one region on the all-waves map.
+// Among those, the most waves, and between equals, the most detailed level.
 function hvPickTimeline(id) {
   const all = hvTimelines();
   const found = all.find(t => t.id === id);
   if (found) return found;
-  return all.slice().sort((a, b) => b.n_waves - a.n_waves || (b.level ? 1 : 0) - (a.level ? 1 : 0) || b.n_units - a.n_units)[0];
+  return all.slice().sort((a, b) => (b.level ? 1 : 0) - (a.level ? 1 : 0) || b.n_waves - a.n_waves || b.n_units - a.n_units)[0];
 }
 function hvSelectTimeline(id) {
   HV.tl = hvPickTimeline(id);
@@ -366,6 +367,7 @@ function hvLevelSeq(t) {
   return seq;
 }
 const hvRegionsText = n => `${n} ${n === 1 ? "region" : "regions"}`;
+const hvIsJoined = t => t.scheme === "stable" || String(t.scheme).startsWith("joined-");
 const hvTlTitle = t => t.level ? hvRegionsText(t.n_units) : `Finest in each wave`;
 const hvTlSub = t => t.level ? t.level_label : `${hvLevelSeq(t).join(", then ")} regions`;
 
@@ -435,7 +437,7 @@ function hvTimelineCard() {
   const inst = hvList(t.instruments);
   const rel = inst.length > 1 ? hvList(HV.d.relations).find(r => inst.includes(r.instrument_a) && inst.includes(r.instrument_b)) : null;
   const seq = hvLevelSeq(t);
-  const joined = t.scheme === "stable";
+  const joined = hvIsJoined(t);
   const changing = hvList(t.all_waves).length > 0;
   const levelText = joined
     ? `${hvRegionsText(t.n_units)}. Regions that changed between waves are joined, and the rest stay at their lowest level, so the same area is compared in all ${t.n_waves} waves.`
@@ -596,13 +598,16 @@ function hvXBlock(g) {
       ${hvXMap("What moved", "The new regions, with the old lines drawn over them.", box, afterItems.map(i => ({ ...i, label: " " })), before.map(u => u.id), {})}
       ${hvXMap(`Across the change: ${groups.length} ${groups.length === 1 ? "area" : "areas"}`, "What a timeline across this change keeps here. Colored areas are joined regions. The rest of the country stays as it is.", box, groupItems, [], labels)}
     </div>`;
-  // A timeline crosses the change if it holds waves from both sides of it.
-  const crossing = hvTimelines().filter(t => t.level && hvList(g.waves_before).some(k => hvList(t.waves).includes(k)) && hvList(g.waves_after).some(k => hvList(t.waves).includes(k)))
-    .sort((a, b) => (b.scheme === "stable") - (a.scheme === "stable") || b.n_waves - a.n_waves)[0];
+  // A timeline crosses the change if it holds waves from both sides of it. Joined timelines come first, and
+  // of those with the same number of regions, only the longest.
+  const across = hvTimelines().filter(t => t.level && hvList(g.waves_before).some(k => hvList(t.waves).includes(k)) && hvList(g.waves_after).some(k => hvList(t.waves).includes(k)));
+  const joinedAcross = across.filter(hvIsJoined);
+  const crossing = (joinedAcross.length ? joinedAcross : across).slice().sort((a, b) => b.n_waves - a.n_waves)
+    .filter((t, i, list) => list.findIndex(x => x.n_units === t.n_units) === i);
   return `<details class="hv-xblock" open><summary><b>${esc(year)}: ${esc(hvRegionsText(before.length))} become ${after.length}</b>${open ? ` <span class="hv-xopen">Open: needs your decision</span>` : ""}</summary>
     ${maps}
     ${!byGroup && split.length ? `<p class="hv-xland"><b>By land:</b> ${split.map(u => `${esc(hvXShort(u.name))}: ${hvList(u.moves).map(m => `${Math.round(m.share * 100)}% in ${esc(hvXShort(nameOf.get(m.to) || m.to))}`).join(", ")}`).join("; ")}. From the boundary files, so land and not people.</p>` : ""}
-    <p class="hv-xland">${crossing ? `Timeline across this change: <a href="${hvHref({ c: HV.iso, t: crossing.id })}">${esc(hvRegionsText(crossing.n_units))}, ${esc(hvTlYears(crossing))}</a>.` : "No timeline crosses this change yet, because the waves on its two sides lie more than 5 years apart."}</p>
+    <p class="hv-xland">${crossing.length ? `${crossing.length === 1 ? "Timeline" : "Timelines"} across this change: ${crossing.map(t => `<a href="${hvHref({ c: HV.iso, t: t.id })}">${esc(hvRegionsText(t.n_units))}, ${esc(hvTlYears(t))}</a>`).join("; ")}.` : "No timeline crosses this change, because the waves on its two sides lie too far apart."}</p>
     <ul class="hv-xnotes">${hvList(g.events).map(e => `<li>${esc(e.notes)}</li>`).join("")}</ul>
   </details>`;
 }
