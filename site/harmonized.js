@@ -586,10 +586,17 @@ function hvMap(totals) {
   const off = hvCellsInView().filter(c => !c.unit).reduce((a, c) => a + c.n, 0);
   const w = hvIsAll() ? null : hvWave(HV.wave);
   const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: ${hvRegionsText(totals.size)}` : `All waves${HV.tl && HV.tl.none ? "" : " in this timeline"}: ${hvRegionsText(totals.size)}`;
+  // Parts of a country drawn beside the rest (Alaska, Hawaii) sit in a thin frame, and the caption says so.
+  const insets = hvList(shapes.insets);
+  const frames = insets.map(b => { const [x, y, bw, bh] = String(b.box).split(" ").map(Number); return `<rect class="hv-inset" x="${x}" y="${y}" width="${bw}" height="${bh}"></rect>`; }).join("");
+  const leftOut = hvList(shapes.left_out).map(b => b.name || b.unit_id);
+  const notes = [...insets.map(b => esc(b.note)), ...(leftOut.length ? [`Not drawn, with no data: ${esc(leftOut.join(", "))}`] : [])];
+  const insetNote = notes.length ? ` · ${notes.join(". ")}.` : "";
   return `<figure class="card hv-map">
-    <figcaption><b>${esc(title)}</b><br><span class="muted">${fmt(onMap)} respondents on the map${noShape.length ? ` · ${fmt(noShapeN)} in ${noShape.length} ${noShape.length === 1 ? "region" : "regions"} with no boundary to draw (listed below)` : ""}${off ? ` · ${fmt(off)} could not be coded (listed below)` : ""}</span></figcaption>
+    <figcaption><b>${esc(title)}</b><br><span class="muted">${fmt(onMap)} respondents on the map${noShape.length ? ` · ${fmt(noShapeN)} in ${noShape.length} ${noShape.length === 1 ? "region" : "regions"} with no boundary to draw (listed below)` : ""}${off ? ` · ${fmt(off)} could not be coded (listed below)` : ""}${insetNote}</span></figcaption>
     <svg viewBox="${esc(shapes.view_box)}" role="group" aria-label="Map of ${esc(hvCountryName(HV.iso))}: respondents per region">
       <path class="hv-base" d="${shapes.outline}"></path>
+      ${frames}
       ${paths}
     </svg>
     ${hvLegend(sc, "No data")}

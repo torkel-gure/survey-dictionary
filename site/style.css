@@ -380,6 +380,7 @@ path.hv-x5 { fill: var(--hv-x5); } path.hv-x6 { fill: var(--hv-x6); } path.hv-x7
 .hv-map figcaption { margin-bottom: 10px; }
 .hv-map svg { display: block; width: 100%; height: min(62vh, 580px); }
 .hv-base { fill: var(--hv-none); stroke: var(--surface); stroke-width: 1; vector-effect: non-scaling-stroke; fill-rule: evenodd; }
+.hv-inset { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .hv-r { fill-rule: evenodd; stroke: var(--surface); stroke-width: 1.5; vector-effect: non-scaling-stroke; cursor: pointer; outline: none; stroke-linejoin: round; }
 .hv-r:hover { stroke: var(--text-2); stroke-width: 2; }
 .hv-r:focus-visible, .hv-r.sel { stroke: var(--text); stroke-width: 2.5; }
