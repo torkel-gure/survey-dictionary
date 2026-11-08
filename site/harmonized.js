@@ -421,7 +421,12 @@ function hvTimelineChart() {
     const inGroup = new Set(g.flatMap(t => hvList(t.waves).map(hvProgramOf)));
     const programs = HV.programs.filter(p => inGroup.has(p));
     const same = hvList(g[0].instruments).length > 1;
-    return `<div class="hv-tl-group"><b>${esc(programs.join(" and "))}</b> <span class="muted">${same ? "The same question across programs, checked in the questionnaires" : "One instrument: the same item in every wave"}</span></div>`;
+    const across = programs.length > 1 ? " across programs" : "";
+    // H1: the same question in the questionnaires; H2: the same statement with another answer scale, so bin only.
+    const text = !same ? "One instrument: the same item in every wave"
+      : String(g[0].tier || "").startsWith("H2") ? `The same statement${across}, with a changed answer scale: shown as protectionist or not only`
+      : `The same question in several versions${across}, checked in the questionnaires`;
+    return `<div class="hv-tl-group"><b>${esc(programs.join(" and "))}</b> <span class="muted">${esc(text)}</span></div>`;
   };
   const coded = waves.map(w => `<span class="hv-num" style="left:${pct(w.date)}%" data-codedwave="${esc(w.wave_key)}">${esc(w.fine_units)}</span>`).join("");
   const key = HV.programs.map((p, i) => `<span class="hv-key"><i class="hv-dot-key hv-p${i}"></i>${esc(p)}</span>`).join("");
