@@ -75,6 +75,33 @@ const hvTotalsOfVar = () => hvList(HV.index.country_totals).filter(t => t.variab
 // Every question with data in one country, and the countries with data for any question.
 const hvTotalsOfCountry = iso => hvList(HV.index.country_totals).filter(t => t.iso3 === iso);
 const hvCountriesWithAny = () => new Set(hvList(HV.index.country_totals).map(t => t.iso3));
+// What the world and region maps show: every country with data for any question, with how many questions and
+// the years they span. A region counts the different questions asked anywhere in it.
+function hvCountrySummary() {
+  if (HV.summary && HV.summary.index === HV.index) return HV.summary.byIso;
+  const byIso = new Map();
+  for (const t of hvList(HV.index.country_totals)) {
+    const s = byIso.get(t.iso3) || { iso3: t.iso3, vars: new Set(), first: Infinity, last: -Infinity };
+    s.vars.add(t.variable); s.first = Math.min(s.first, +t.first_year); s.last = Math.max(s.last, +t.last_year);
+    byIso.set(t.iso3, s);
+  }
+  for (const s of byIso.values()) s.q = s.vars.size;
+  HV.summary = { index: HV.index, byIso };
+  return byIso;
+}
+function hvRegionSummary(byIso) {
+  const out = new Map(hvList(HV.world.regions).map(r => [r.region, { vars: new Set(), countries: 0 }]));
+  for (const s of byIso.values()) {
+    const r = out.get(hvCountryRegion(s.iso3));
+    if (!r) continue;
+    r.countries++;
+    for (const v of s.vars) r.vars.add(v);
+  }
+  for (const r of out.values()) r.q = r.vars.size;
+  return out;
+}
+const hvQuestionsText = n => `${n} ${+n === 1 ? "question" : "questions"}`;
+const hvYearsText = s => s.first === s.last ? `${s.first}` : `${s.first}–${s.last}`;
 const hvCountryName = iso => (HV.index.countries || {})[iso] || (HV.world.countries.find(c => c.iso3 === iso) || {}).name || iso;
 const hvCountryRegion = iso => (HV.world.countries.find(c => c.iso3 === iso) || {}).region;
 const hvHref = (extra = {}, varId = HV.varId) => "#" + new URLSearchParams({ v: "harmonized", var: varId, ...extra }).toString();
@@ -308,20 +335,20 @@ function hvNotAskedCard() {
 }
 
 /* Regions and countries as a list, for anyone who would rather not click the map. */
-function hvBrowse(byIso) {
+function hvBrowse(byIso, regionSum) {
   const inRegion = HV.level === "region";
-  const regionTotal = r => hvTotalsOfVar().filter(t => hvCountryRegion(t.iso3) === r).reduce((a, t) => a + t.n, 0);
+  const regionQ = r => (regionSum.get(r) || { q: 0 }).q;
   const regions = (inRegion ? [HV.region] : hvList(HV.world.regions).map(r => r.region))
-    .sort((a, b) => regionTotal(b) - regionTotal(a) || a.localeCompare(b));
+    .sort((a, b) => regionQ(b) - regionQ(a) || a.localeCompare(b));
   const col = r => {
     const cs = HV.world.countries.filter(c => c.region === r).sort((a, b) => byIso.has(b.iso3) - byIso.has(a.iso3) || a.name.localeCompare(b.name));
     return `<div class="hv-browse-col">${inRegion ? "" : `<h4><a href="${hvHref({ r })}">${esc(r)}</a></h4>`}
       <ul>${cs.map(c => byIso.has(c.iso3)
-        ? `<li><a href="${hvHref({ c: c.iso3 })}">${esc(hvCountryName(c.iso3))}</a> <span class="muted">${fmt(byIso.get(c.iso3).n)}</span></li>`
+        ? `<li><a href="${hvHref({ c: c.iso3 })}">${esc(hvCountryName(c.iso3))}</a> <span class="muted">${esc(hvQuestionsText(byIso.get(c.iso3).q))}</span></li>`
         : `<li class="hv-nodata">${esc(c.name)}</li>`).join("")}</ul></div>`;
   };
   return `<section class="card hv-browse"><h3>${inRegion ? `Countries in ${esc(HV.region)}` : "All regions and countries"}</h3>
-    <p class="muted">Countries with data are links, with their respondents beside them. Grey names have no data yet.</p>
+    <p class="muted">Countries with data for any question are links, with the number of questions beside them. Grey names have no data yet.</p>
     <div class="hv-browse-grid${inRegion ? " one" : ""}">${regions.map(col).join("")}</div></section>`;
 }
 
@@ -343,59 +370,57 @@ function hvVariableCard() {
 
 /* ---------- world and region views ---------- */
 function hvWorldBody() {
-  const totals = hvTotalsOfVar();
-  const byIso = new Map(totals.map(t => [t.iso3, t]));
+  // Where any question has data, shaded by how many questions: the world by region, a region by country.
+  const byIso = hvCountrySummary();
+  const regionSum = hvRegionSummary(byIso);
   const regions = hvList(HV.world.regions);
-  const regionN = new Map(regions.map(r => [r.region, 0]));
-  for (const t of totals) { const r = hvCountryRegion(t.iso3); if (regionN.has(r)) regionN.set(r, regionN.get(r) + t.n); }
   const inRegionView = HV.level === "region";
   const view = inRegionView ? regions.find(r => r.region === HV.region) : HV_WORLD_VIEW;
-  const sc = inRegionView
-    ? hvScaleOf(totals.filter(t => hvCountryRegion(t.iso3) === HV.region).map(t => t.n))
-    : hvScaleOf([...regionN.values()].filter(n => n > 0));
+  const inView = [...byIso.values()].filter(s => hvCountryRegion(s.iso3) === HV.region);
+  const sc = inRegionView ? hvScaleOf(inView.map(s => s.q)) : hvScaleOf([...regionSum.values()].map(r => r.q).filter(n => n > 0));
   const k = inRegionView ? Math.cos(((+view.lat_min + +view.lat_max) / 2) * Math.PI / 180) : 0.8;
   const x0 = +view.lon_min * 100 * k, w = (+view.lon_max - +view.lon_min) * 100 * k;
   const y0 = -view.lat_max * 100, h = (+view.lat_max - +view.lat_min) * 100;
   const paths = HV.world.countries.map(c => {
     const name = esc(c.name);
     if (!inRegionView) {
-      const n = regionN.get(c.region) || 0;
+      const n = (regionSum.get(c.region) || { q: 0 }).q;
       return `<path class="hv-w ${n ? `hv-c${hvClassOf(n, sc)}` : "hv-no"}" data-region="${esc(c.region)}" data-name="${name}" d="${c.path}"></path>`;
     }
-    const t = c.region === HV.region ? byIso.get(c.iso3) : null;
-    if (t) return `<path class="hv-w hv-go hv-c${hvClassOf(t.n, sc)}" data-country="${esc(c.iso3)}" data-name="${name}" d="${c.path}" tabindex="0" role="link" aria-label="${name}: ${fmt(t.n)} respondents"></path>`;
+    const s = c.region === HV.region ? byIso.get(c.iso3) : null;
+    if (s) return `<path class="hv-w hv-go hv-c${hvClassOf(s.q, sc)}" data-country="${esc(c.iso3)}" data-name="${name}" d="${c.path}" tabindex="0" role="link" aria-label="${name}: ${hvQuestionsText(s.q)}"></path>`;
     return `<path class="hv-w hv-no${c.region === HV.region ? "" : " hv-out"}" data-name="${name}" d="${c.path}"></path>`;
   }).join("");
   const title = inRegionView ? `${HV.region}: click a country` : "World: click a region";
+  const all = hvList(HV.index.variables).length;
   const sub = inRegionView
-    ? `${fmt(regionN.get(HV.region) || 0)} respondents in this region`
-    : `${fmt(totals.reduce((a, t) => a + t.n, 0))} respondents harmonized so far`;
+    ? `${hvQuestionsText((regionSum.get(HV.region) || { q: 0 }).q)} with data in ${inView.length} ${inView.length === 1 ? "country" : "countries"} of this region. Darker means more questions.`
+    : `Where any of the ${all} questions has data: ${byIso.size} countries. Darker means more questions.`;
   return `<div class="hv-main hv-main-world">
     <figure class="card hv-map hv-map-world">
       <figcaption><b>${esc(title)}</b><br><span class="muted">${esc(sub)}</span></figcaption>
       <svg viewBox="${x0} ${y0} ${w} ${h}" role="group" aria-label="${esc(title)}"><g transform="scale(${k} 1)">${paths}</g></svg>
-      ${hvLegend(sc, "No data yet")}
+      ${hvLegend(sc, "No data yet", "Questions")}
       ${hvWorldCredit()}
     </figure>
-    <aside class="card hv-panel">${inRegionView ? hvCountryList(byIso) : hvRegionList(regionN, byIso)}</aside>
+    <aside class="card hv-panel">${inRegionView ? hvCountryList(byIso) : hvRegionList(regionSum)}</aside>
   </div>
-  ${hvBrowse(byIso)}`;
+  ${hvBrowse(byIso, regionSum)}`;
 }
 
-function hvRegionList(regionN, byIso) {
-  const rows = [...regionN.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  const count = r => [...byIso.keys()].filter(iso => hvCountryRegion(iso) === r).length;
+function hvRegionList(regionSum) {
+  const rows = [...regionSum.entries()].sort((a, b) => b[1].q - a[1].q || a[0].localeCompare(b[0]));
   return `<h3>Regions</h3>
-    <div class="hv-scroll"><table class="occ"><thead><tr><th>Region</th><th class="num">Countries with data</th><th class="num">Respondents</th></tr></thead>
-    <tbody>${rows.map(([r, n]) => `<tr class="row" data-goregion="${esc(r)}" tabindex="0"><td>${esc(r)}</td><td class="num">${n ? count(r) : "–"}</td><td class="num">${n ? fmt(n) : `<span class="muted">No data yet</span>`}</td></tr>`).join("")}</tbody></table></div>`;
+    <div class="hv-scroll"><table class="occ"><thead><tr><th>Region</th><th class="num">Countries with data</th><th class="num">Questions</th></tr></thead>
+    <tbody>${rows.map(([r, s]) => `<tr class="row" data-goregion="${esc(r)}" tabindex="0"><td>${esc(r)}</td><td class="num">${s.q ? s.countries : "–"}</td><td class="num">${s.q ? s.q : `<span class="muted">No data yet</span>`}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 function hvCountryList(byIso) {
   const members = HV.world.countries.filter(c => c.region === HV.region);
-  const withData = members.filter(c => byIso.has(c.iso3)).sort((a, b) => a.name.localeCompare(b.name));
+  const withData = members.filter(c => byIso.has(c.iso3)).sort((a, b) => byIso.get(b.iso3).q - byIso.get(a.iso3).q || a.name.localeCompare(b.name));
   const others = members.length - withData.length;
-  const table = `<div class="hv-scroll"><table class="occ"><thead><tr><th>Country</th><th class="num">Respondents</th><th class="num">Waves</th><th>Years</th></tr></thead>
-    <tbody>${withData.map(c => { const t = byIso.get(c.iso3); return `<tr class="row" data-country="${esc(c.iso3)}" tabindex="0"><td>${esc(hvCountryName(c.iso3))}</td><td class="num">${fmt(t.n)}</td><td class="num">${t.waves}</td><td>${esc(t.first_year)}–${esc(t.last_year)}</td></tr>`; }).join("")}</tbody></table></div>`;
+  const table = `<div class="hv-scroll"><table class="occ"><thead><tr><th>Country</th><th class="num">Questions</th><th>Years</th></tr></thead>
+    <tbody>${withData.map(c => { const s = byIso.get(c.iso3); return `<tr class="row" data-country="${esc(c.iso3)}" tabindex="0"><td>${esc(hvCountryName(c.iso3))}</td><td class="num">${s.q}</td><td>${esc(hvYearsText(s))}</td></tr>`; }).join("")}</tbody></table></div>`;
   return `<h3>${esc(HV.region)}</h3>
     ${withData.length ? table : `<p class="muted">No country in this region has data yet.</p>`}
     ${withData.length && others ? `<p class="muted hv-after">The other ${others} countries in this region have no data yet.</p>` : ""}`;
@@ -604,7 +629,7 @@ function hvMap(totals) {
   </figure>`;
 }
 
-function hvLegend(sc, none) {
+function hvLegend(sc, none, title = "Respondents") {
   const count = sc.breaks.length + 1;
   const edges = [0, ...sc.breaks, sc.max];
   const items = [];
@@ -612,7 +637,7 @@ function hvLegend(sc, none) {
     const lo = edges[i] + 1, hi = edges[i + 1];
     items.push(`<span class="hv-key"><i class="hv-sw hv-c${hvClass(i, count)}"></i>${lo === hi || count === 1 ? fmt(hi) : `${fmt(lo)}–${fmt(hi)}`}</span>`);
   }
-  return `<div class="hv-legend" aria-label="Legend: respondents"><span class="hv-legend-title">Respondents</span>${items.join("")}<span class="hv-key"><i class="hv-sw hv-none"></i>${esc(none)}</span></div>`;
+  return `<div class="hv-legend" aria-label="Legend: ${esc(title.toLowerCase())}"><span class="hv-legend-title">${esc(title)}</span>${items.join("")}<span class="hv-key"><i class="hv-sw hv-none"></i>${esc(none)}</span></div>`;
 }
 
 function hvCredit() {
@@ -931,11 +956,11 @@ function hvBind(root) {
     if (w) {
       hvHoverRegion(w.dataset.region || null);
       if (w.dataset.region) {
-        const n = hvTotalsOfVar().filter(t => hvCountryRegion(t.iso3) === w.dataset.region).reduce((a, t) => a + t.n, 0);
-        return tipAt(e, `<b>${esc(w.dataset.region)}</b>${n ? `${fmt(n)} respondents` : "No data yet"}`);
+        const r = hvRegionSummary(hvCountrySummary()).get(w.dataset.region);
+        return tipAt(e, `<b>${esc(w.dataset.region)}</b>${r && r.q ? `${hvQuestionsText(r.q)} in ${r.countries} ${r.countries === 1 ? "country" : "countries"}` : "No data yet"}`);
       }
-      const t = w.dataset.country ? hvTotalsOfVar().find(x => x.iso3 === w.dataset.country) : null;
-      return tipAt(e, `<b>${esc(w.dataset.name)}</b>${t ? `${fmt(t.n)} respondents` : "No data yet"}`);
+      const s = w.dataset.country ? hvCountrySummary().get(w.dataset.country) : null;
+      return tipAt(e, `<b>${esc(w.dataset.name)}</b>${s ? `${hvQuestionsText(s.q)}, ${esc(hvYearsText(s))}` : "No data yet"}`);
     }
     hvHoverRegion(null);
     tipAt(null, null);
