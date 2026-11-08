@@ -134,7 +134,22 @@ function hvPickTimeline(id) {
   const all = hvTimelines();
   const found = all.find(t => t.id === id);
   if (found) return found;
-  return all.slice().sort((a, b) => (b.level ? 1 : 0) - (a.level ? 1 : 0) || b.n_waves - a.n_waves || b.n_units - a.n_units)[0];
+  return all.slice().sort((a, b) => (b.level ? 1 : 0) - (a.level ? 1 : 0) || b.n_waves - a.n_waves || b.n_units - a.n_units)[0] || hvNoTimeline();
+}
+// A country with no timeline (no wave codes two or more regions, as in Hong Kong): all its waves, so its questions,
+// answers and uncoded respondents still show.
+function hvNoTimeline() {
+  const keys = [...new Set(HV.d.waves.map(w => w.wave_key))];
+  const dates = HV.d.waves.map(w => String(w.date)).sort();
+  return { id: "", none: true, waves: keys, level: null, n_units: 0, n_waves: keys.length, start: dates[0], end: dates[dates.length - 1], changes: [] };
+}
+function hvNoTimelineCard() {
+  const placed = HV.d.cells.some(c => c.unit), n = HV.tl.n_waves;
+  const why = !placed ? "No respondent here could be tied to a region, so there is nothing to draw. They are kept, and the reasons are listed below."
+    : n === 1 ? "There is one wave here, and a timeline needs two. The map shows that wave's regions."
+    : "These waves don't make a timeline yet: they lie too far apart in time, or each wave asks its own version of the question and the versions are not linked yet. The map adds up all waves at their finest regions.";
+  return `<section class="card hv-tl"><h3>No timeline for ${esc(hvCountryName(HV.iso))}</h3>
+    <p class="muted">${why} ${n === 1 ? "The wave is" : `All ${n} waves are`} listed below with the question and how the answers were coded.</p></section>`;
 }
 function hvSelectTimeline(id) {
   HV.tl = hvPickTimeline(id);
@@ -149,7 +164,7 @@ function hvSync() {
   if (HV.level === "region") p.r = HV.region;
   if (HV.level === "country") {
     p.c = HV.iso;
-    p.t = HV.t;
+    if (HV.t) p.t = HV.t;
     if (!hvIsAll()) p.w = HV.wave;
     if (HV.unit) p.u = HV.unit;
     if (HV.src) p.src = HV.src;
@@ -210,8 +225,9 @@ function hvDraw(refocus) {
     hxRefresh();
     return;
   }
+  const noTl = HV.level === "country" && HV.tl && HV.tl.none;
   const body = HV.level === "country"
-    ? `${hvTimelineChart()}${hvTimelineCard()}<div id="hvBody">${hvCountryBody()}</div>`
+    ? `${noTl ? hvNoTimelineCard() : `${hvTimelineChart()}${hvTimelineCard()}`}<div id="hvBody">${hvCountryBody()}</div>`
     : hvWorldBody();
   root.innerHTML = `<div class="hv-wrap">
     <div class="pi-head"><h2>Harmonized variables</h2>
@@ -220,7 +236,7 @@ function hvDraw(refocus) {
     ${hvVariableCard()}
     ${body}
   </div>`;
-  if (HV.level === "country") hvMarkChart();
+  if (HV.level === "country" && !noTl) hvMarkChart();
   hvSync();
   if (refocus) { const el = root.querySelector(refocus); if (el) el.focus({ preventScroll: true }); }
 }
@@ -271,13 +287,16 @@ function hvVariableCard() {
   const v = hvVar();
   const t = hvTotalsOfVar();
   const y0 = Math.min(...t.map(x => +x.first_year)), y1 = Math.max(...t.map(x => +x.last_year));
-  const versions = +v.wordings === 1 ? "one wording" : `${v.wordings} versions of the wording`;
+  // Wordings and scales are read from the questionnaires; for a program whose questionnaires are not fetched yet there are none.
+  const scales = +v.scales === 1 ? "one answer scale" : `${v.scales} answer scales`;
+  const versions = !+v.wordings ? "the wording not yet read from a questionnaire"
+    : `${+v.wordings === 1 ? "one wording" : `${v.wordings} versions of the wording`} and ${scales}`;
   const answersOpen = HV.level === "country" && hvList(HV.d.answers).some(a => a.status === "proposed");
   const regionsOpen = HV.level === "country" && hvList(HV.d.coding).some(c => c.status === "proposed");
   const tag = answersOpen ? "Coding proposed, not yet confirmed" : regionsOpen ? "Region coding proposed, not yet confirmed" : "";
   return `<section class="card hv-var"><h3>${esc(v.name)}${tag ? ` <span class="hv-tag">${tag}</span>` : ""}</h3>
     <p>${esc(v.definition)}.</p>
-    <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}, with ${esc(versions)} and ${esc(v.scales)} answer scales. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.${HV.level === "country" ? "" : " Open a country to see every question and how it was coded."}</p></section>`;
+    <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}, with ${esc(versions)}. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.${HV.level === "country" ? "" : " Open a country to see every question and how it was coded."}</p></section>`;
 }
 
 /* ---------- world and region views ---------- */
@@ -496,13 +515,17 @@ function hvRedrawBody(refocus) {
   const body = $("#hvBody");
   if (!body) return hvDraw(refocus);
   body.innerHTML = hvCountryBody();
-  hvMarkChart();
+  if (!(HV.tl && HV.tl.none)) hvMarkChart();
   hvSync();
   if (refocus) { const el = $("#harmonizedView").querySelector(refocus); if (el) el.focus({ preventScroll: true }); }
 }
 
 function hvMap(totals) {
   const { shapes } = HV;
+  if (!shapes.view_box || !shapes.outline) {
+    const n = [...totals.values()].reduce((a, b) => a + b, 0);
+    return `<figure class="card hv-map"><figcaption><b>No map for ${esc(hvCountryName(HV.iso))}</b><br><span class="muted">No boundary source has regions for this territory. ${n ? `${fmt(n)} respondents in ${hvRegionsText(totals.size)} are listed below.` : "The respondents and why they have no region are listed below."}</span></figcaption></figure>`;
+  }
   const sc = hvIsAll() ? HV.scale.all : HV.scale.wave;
   const regions = [...totals.keys()].map(id => ({ id, n: totals.get(id), d: shapes.paths[id] })).filter(r => r.d);
   // The selected region is drawn last, so its outline sits on top of its neighbours.
@@ -515,7 +538,7 @@ function hvMap(totals) {
   const noShapeN = noShape.reduce((a, id) => a + totals.get(id), 0);
   const off = hvCellsInView().filter(c => !c.unit).reduce((a, c) => a + c.n, 0);
   const w = hvIsAll() ? null : hvWave(HV.wave);
-  const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: ${hvRegionsText(totals.size)}` : `All waves in this timeline: ${hvRegionsText(totals.size)}`;
+  const title = w ? `${hvWaveLabel(w)}, ${hvYear(w)}: ${hvRegionsText(totals.size)}` : `All waves${HV.tl && HV.tl.none ? "" : " in this timeline"}: ${hvRegionsText(totals.size)}`;
   return `<figure class="card hv-map">
     <figcaption><b>${esc(title)}</b><br><span class="muted">${fmt(onMap)} respondents on the map${noShape.length ? ` · ${fmt(noShapeN)} in ${noShape.length} ${noShape.length === 1 ? "region" : "regions"} with no boundary to draw (listed below)` : ""}${off ? ` · ${fmt(off)} could not be coded (listed below)` : ""}</span></figcaption>
     <svg viewBox="${esc(shapes.view_box)}" role="group" aria-label="Map of ${esc(hvCountryName(HV.iso))}: respondents per region">
@@ -620,6 +643,8 @@ function hvChangesCard() {
 }
 
 function hvIntroPanel(totals) {
+  if (HV.tl && HV.tl.none) return `<h3>Click a wave</h3>
+    <p>Click a wave in the questions below to see its question and which answers were coded to what.</p>`;
   return `<h3>Click a wave or a region</h3>
     <p>Click a wave on a timeline, or move the slider, to see its question and which answers were coded to what.</p>
     <p>Click a region to see the source data that make it up, then a source to see how its region codes were coded.</p>
@@ -638,7 +663,8 @@ function hvWavePanel() {
     ${changes.length ? `<div class="hv-note"><b>Changes at this wave</b><ul>${changes.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
     <h4>The question</h4>
     <dl class="hv-meta">
-      <dt>Question</dt><dd>${esc(w.question_id)}, item ${esc(w.item_no)}, page ${esc(w.page)} of the ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"} (study ${esc(w.study)})</dd>
+      <dt>Question</dt><dd>${w.question_id ? `${esc(w.question_id)}, item ${esc(w.item_no)}, page ${esc(w.page)} of the ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"} (study ${esc(w.study)})`
+        : `<span class="muted">The questionnaire for this wave is not fetched yet, so the wording below is the variable's label in the file.</span>`}</dd>
       ${row("Wording", w.wording)}
       ${row("Answers offered", w.scale)}
       ${row("How it is asked", w.presentation)}
@@ -713,7 +739,7 @@ function hvQuestions() {
   const rows = waves.map((w, i) => {
     const prev = waves[i - 1];
     const cells = fields.map(f => `<td class="${prev && prev[f] !== w[f] ? "hv-diff" : ""}">${esc(w[f])}</td>`).join("");
-    return `<tr class="row${w.wave_key === HV.wave ? " on" : ""}" data-qwave="${esc(w.wave_key)}" tabindex="0"><td>${esc(hvYear(w))}</td><td>${esc(hvWaveLabel(w))}</td><td>${esc(w.question_id)}.${esc(w.item_no)}, p. ${esc(w.page)}</td><td><code>${esc(w.variable)}</code></td>${cells}</tr>`;
+    return `<tr class="row${w.wave_key === HV.wave ? " on" : ""}" data-qwave="${esc(w.wave_key)}" tabindex="0"><td>${esc(hvYear(w))}</td><td>${esc(hvWaveLabel(w))}</td><td>${w.question_id ? `${esc(w.question_id)}.${esc(w.item_no)}, p. ${esc(w.page)}` : `<span class="muted">not read yet</span>`}</td><td><code>${esc(w.variable)}</code></td>${cells}</tr>`;
   }).join("");
   return `<section class="card hv-qs"><h3>Every question in this timeline</h3>
     <p class="muted">${waves.length} waves. ${summary ? `Versions across them: ${esc(summary)}. ` : ""}Highlighted cells differ from the wave before. Click a wave for how its answers were coded.</p>
