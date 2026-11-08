@@ -366,6 +366,15 @@ path.hv-x5 { fill: var(--hv-x5); } path.hv-x6 { fill: var(--hv-x6); } path.hv-x7
 .hv-crumbs a { color: var(--accent); }
 .hv-crumbs b { color: var(--text); }
 .hv-var p { margin: 0 0 4px; }
+/* The questions asked in the selected country. */
+.hv-qlist summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.hv-qlist summary .muted { font-size: 13px; }
+.hv-qgrid { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 4px 16px; }
+.hv-qgrid li { padding: 5px 8px; border-radius: 8px; font-size: 13px; line-height: 1.35; }
+.hv-qgrid li a { color: var(--accent); display: block; }
+.hv-qgrid li .muted { font-size: 12px; }
+.hv-qgrid li.on { background: var(--accent-soft); }
+.hv-qgrid li.on a { color: var(--text); font-weight: 600; }
 .hv-main { display: grid; grid-template-columns: minmax(300px, 4fr) minmax(0, 7fr); gap: 12px; align-items: start; }
 .hv-map { margin: 0; }
 .hv-map figcaption { margin-bottom: 10px; }

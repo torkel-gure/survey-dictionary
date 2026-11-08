@@ -72,9 +72,12 @@ const hvSourceLabel = src => {
 };
 const hvVar = () => hvList(HV.index.variables).find(x => x.id === HV.varId);
 const hvTotalsOfVar = () => hvList(HV.index.country_totals).filter(t => t.variable === HV.varId);
+// Every question with data in one country, and the countries with data for any question.
+const hvTotalsOfCountry = iso => hvList(HV.index.country_totals).filter(t => t.iso3 === iso);
+const hvCountriesWithAny = () => new Set(hvList(HV.index.country_totals).map(t => t.iso3));
 const hvCountryName = iso => (HV.index.countries || {})[iso] || (HV.world.countries.find(c => c.iso3 === iso) || {}).name || iso;
 const hvCountryRegion = iso => (HV.world.countries.find(c => c.iso3 === iso) || {}).region;
-const hvHref = (extra = {}) => "#" + new URLSearchParams({ v: "harmonized", var: HV.varId, ...extra }).toString();
+const hvHref = (extra = {}, varId = HV.varId) => "#" + new URLSearchParams({ v: "harmonized", var: varId, ...extra }).toString();
 
 /* ---------- color classes: darker means more ---------- */
 // Up to five classes from the quantiles, rounded to two digits so the legend reads easily.
@@ -162,6 +165,7 @@ function hvSync() {
   const p = {};
   if (HV.level === "export") p.x = 1;
   if (HV.level === "region") p.r = HV.region;
+  if (HV.level === "overview") p.c = HV.iso;
   if (HV.level === "country") {
     p.c = HV.iso;
     if (HV.t) p.t = HV.t;
@@ -193,6 +197,9 @@ async function renderHarmonized(p) {
       hvSelectTimeline(p.get("t"));
       HV.unit = p.get("u") || null;
       HV.src = p.get("src") || null;
+    } else if (iso && hvCountriesWithAny().has(iso)) {
+      // A country where this question was not asked: the questions that were.
+      HV.level = "overview"; HV.iso = iso; HV.region = hvCountryRegion(iso);
     } else if (hvList(HV.world.regions).some(r => r.region === p.get("r"))) {
       HV.level = "region"; HV.region = p.get("r"); HV.iso = null;
     } else {
@@ -228,12 +235,14 @@ function hvDraw(refocus) {
   const noTl = HV.level === "country" && HV.tl && HV.tl.none;
   const body = HV.level === "country"
     ? `${noTl ? hvNoTimelineCard() : `${hvTimelineChart()}${hvTimelineCard()}`}<div id="hvBody">${hvCountryBody()}</div>`
-    : hvWorldBody();
+    : HV.level === "overview" ? "" : hvWorldBody();
+  const top = HV.level === "overview" ? `${hvNotAskedCard()}${hvQuestionList(true)}`
+    : HV.level === "country" ? `${hvQuestionList(HV.qOpen !== false)}${hvVariableCard()}` : hvVariableCard();
   root.innerHTML = `<div class="hv-wrap">
     <div class="pi-head"><h2>Harmonized variables</h2>
       <p class="muted">The harmonized time series so far, and how they were coded. Choose a country from the lists, or click through the maps, to see its timelines.</p></div>
     ${hvControls()}
-    ${hvVariableCard()}
+    ${top}
     ${body}
   </div>`;
   if (HV.level === "country" && !noTl) hvMarkChart();
@@ -245,24 +254,57 @@ function hvControls() {
   const vars = hvList(HV.index.variables);
   const crumbs = [`<a href="${hvHref()}">World</a>`];
   if (HV.region) crumbs.push(HV.level === "region" ? `<b>${esc(HV.region)}</b>` : `<a href="${hvHref({ r: HV.region })}">${esc(HV.region)}</a>`);
-  if (HV.level === "country") crumbs.push(`<b>${esc(hvCountryName(HV.iso))}</b>`);
+  if (HV.level === "country" || HV.level === "overview") crumbs.push(`<b>${esc(hvCountryName(HV.iso))}</b>`);
   if (HV.level === "world") crumbs[0] = `<b>World</b>`;
   const regions = hvList(HV.world.regions).map(r => r.region).sort((a, b) => a.localeCompare(b));
   const withData = new Set(hvTotalsOfVar().map(t => t.iso3));
+  const withAny = hvCountriesWithAny();
+  // Every country with any question opens: one without this question shows the questions it has.
+  const rank = iso => withData.has(iso) ? 2 : withAny.has(iso) ? 1 : 0;
   const countryGroups = regions.map(r => {
-    const cs = HV.world.countries.filter(c => c.region === r).sort((a, b) => withData.has(b.iso3) - withData.has(a.iso3) || a.name.localeCompare(b.name));
-    return `<optgroup label="${esc(r)}">${cs.map(c => `<option value="${esc(c.iso3)}"${withData.has(c.iso3) ? "" : " disabled"}${c.iso3 === HV.iso ? " selected" : ""}>${esc(c.name)}${withData.has(c.iso3) ? "" : " (no data yet)"}</option>`).join("")}</optgroup>`;
+    const cs = HV.world.countries.filter(c => c.region === r).sort((a, b) => rank(b.iso3) - rank(a.iso3) || a.name.localeCompare(b.name));
+    return `<optgroup label="${esc(r)}">${cs.map(c => `<option value="${esc(c.iso3)}"${withAny.has(c.iso3) ? "" : " disabled"}${c.iso3 === HV.iso ? " selected" : ""}>${esc(c.name)}${withData.has(c.iso3) ? "" : withAny.has(c.iso3) ? " (other questions)" : " (no data yet)"}</option>`).join("")}</optgroup>`;
   }).join("");
+  // In a country, the questions asked there come first.
+  const opt = x => `<option value="${esc(x.id)}"${x.id === HV.varId ? " selected" : ""}>${esc(x.name)}</option>`;
+  let varOptions = vars.map(opt).join("");
+  if (HV.iso && (HV.level === "country" || HV.level === "overview")) {
+    const asked = new Set(hvTotalsOfCountry(HV.iso).map(t => t.variable)), name = esc(hvCountryName(HV.iso));
+    const yes = vars.filter(x => asked.has(x.id)), no = vars.filter(x => !asked.has(x.id));
+    varOptions = `<optgroup label="Asked in ${name} (${yes.length})">${yes.map(opt).join("")}</optgroup>` +
+      (no.length ? `<optgroup label="Not asked in ${name}">${no.map(opt).join("")}</optgroup>` : "");
+  }
   return `<div class="hv-controls">
     <label class="field"><span>Variable</span>
-      <select id="hvVar">${vars.map(x => `<option value="${esc(x.id)}"${x.id === HV.varId ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <select id="hvVar">${varOptions}</select></label>
     <label class="field"><span>World region</span>
       <select id="hvRegionPick"><option value="">All regions</option>${regions.map(r => `<option value="${esc(r)}"${r === HV.region ? " selected" : ""}>${esc(r)}</option>`).join("")}</select></label>
     <label class="field"><span>Country</span>
       <select id="hvCountryPick"><option value="">Choose a country</option>${countryGroups}</select></label>
     <nav class="hv-crumbs" aria-label="Where you are">${crumbs.join(` <span aria-hidden="true">›</span> `)}</nav>
-    <a class="btn" id="hvExport" href="${hvHref({ x: 1, ...(HV.level === "country" ? { c: HV.iso, t: HV.t } : HV.level === "region" ? { r: HV.region } : {}) })}">Export data</a>
+    <a class="btn" id="hvExport" href="${hvHref({ x: 1, ...(HV.level === "country" ? { c: HV.iso, t: HV.t } : HV.region ? { r: HV.region } : {}) })}">Export data</a>
   </div>`;
+}
+
+/* Every question with data in the selected country, so it can be switched without leaving the country. */
+function hvQuestionList(open) {
+  const vars = hvList(HV.index.variables);
+  const rows = hvTotalsOfCountry(HV.iso).map(t => ({ t, v: vars.find(x => x.id === t.variable) })).filter(r => r.v)
+    .sort((a, b) => a.v.name.localeCompare(b.v.name));
+  const years = t => +t.first_year === +t.last_year ? `${t.first_year}` : `${t.first_year}–${t.last_year}`;
+  const items = rows.map(({ t, v }) => {
+    const on = HV.level === "country" && v.id === HV.varId;
+    return `<li${on ? ` class="on"` : ""}><a href="${hvHref({ c: HV.iso }, v.id)}"${on ? ` aria-current="page"` : ""}>${esc(v.name)}</a>
+      <span class="muted">${esc(years(t))} · ${t.waves} ${+t.waves === 1 ? "wave" : "waves"} · ${fmt(t.n)} respondents</span></li>`;
+  }).join("");
+  return `<details class="card hv-qlist" id="hvQList"${open ? " open" : ""}>
+    <summary><b>Questions asked in ${esc(hvCountryName(HV.iso))}</b> <span class="hv-tag">${rows.length} of ${vars.length}</span>
+      <span class="muted">${HV.level === "country" ? "Click one to switch, staying in this country." : "Click one to see its timelines, map and coding."}</span></summary>
+    <ul class="hv-qgrid">${items}</ul></details>`;
+}
+function hvNotAskedCard() {
+  return `<section class="card hv-var"><h3>${esc(hvCountryName(HV.iso))}</h3>
+    <p class="muted">${esc(hvVar().name)} has no data for ${esc(hvCountryName(HV.iso))} yet. The questions below do.</p></section>`;
 }
 
 /* Regions and countries as a list, for anyone who would rather not click the map. */
@@ -840,6 +882,8 @@ function hvBind(root) {
   });
   // Remembers which countries are folded on the export page: the toggle event does not bubble.
   root.addEventListener("toggle", e => {
+    // The country's question list stays folded once folded.
+    if (e.target.id === "hvQList" && HV.level === "country") HV.qOpen = e.target.open;
     const b = e.target.dataset && e.target.dataset.hxblock;
     if (!b) return;
     (e.target.open ? HX.opened : HX.closed).add(b);
@@ -850,8 +894,9 @@ function hvBind(root) {
     if (["hvVar", "hvRegionPick", "hvCountryPick"].includes(e.target.id)) HV.refocus = `#${e.target.id}`;
     if (e.target.id === "hvVar") {
       HV.varId = e.target.value;
-      // A new variable keeps you where you are, if it reaches there.
-      const stay = HV.level === "country" && hvTotalsOfVar().some(t => t.iso3 === HV.iso) ? { c: HV.iso } : HV.region ? { r: HV.region } : {};
+      // A new variable keeps you in the country (its page, or the country's questions if it was not asked
+      // there) and otherwise in the region.
+      const stay = (HV.level === "country" || HV.level === "overview") ? { c: HV.iso } : HV.region ? { r: HV.region } : {};
       location.hash = hvHref(stay).slice(1);
     }
     if (e.target.id === "hvRegionPick") location.hash = hvHref(e.target.value ? { r: e.target.value } : {}).slice(1);
