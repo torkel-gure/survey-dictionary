@@ -831,7 +831,7 @@ function hvNotCoded() {
   const total = rows.reduce((a, r) => a + r.n, 0);
   if (!rows.length) return `<section class="card hv-off"><h3>Not on the map</h3><p class="muted">Every respondent in this view has a region on the map.</p></section>`;
   return `<section class="card hv-off"><h3>Not on the map: could not be coded <span class="hv-tag">${fmt(total)} respondents</span></h3>
-    <p class="muted">These respondents are kept in the data, but their region code could not be tied to a region with confidence. The label is shown as it stands in the file.</p>
+    <p class="muted">These respondents are kept in the data, but their region code is not tied to a region yet. The label is shown as it stands in the file, and the reason is beside it.</p>
     <div class="hv-scroll"><table class="occ"><thead><tr><th>Year</th><th>Source</th><th>Region variable</th><th>Code</th><th>Label in the file</th><th class="num">Respondents</th><th>Why</th></tr></thead>
     <tbody>${rows.map(r => `<tr class="row" data-src="${esc(r.source)}" tabindex="0"><td>${esc(hvYear(hvWave(r.wave)))}</td><td>${esc(hvSourceLabel(r.source))}</td><td><code>${esc(r.var)}</code> ${esc(r.var_label || "")}</td><td>${esc(r.code)}</td><td>${hvLabel(r.label)}</td><td class="num">${fmt(r.n)}</td><td class="hv-why">${esc(r.reason || "")}</td></tr>`).join("")}</tbody></table></div></section>`;
 }
