@@ -5,8 +5,8 @@
    Nothing else from the source files is on the site: the file and row lead back to them.
    The builders (hxBuildExport, hxCsv, hxZip) do not touch the page. */
 
-const HX_CATS = ["pro", "anti", "mid", "dk", "refused", "nonresp", "not_asked", "other_missing"];
-const HX_CAT_LABELS = { pro: "Protectionist", anti: "Not protectionist", mid: "Middle category", dk: "Don't know", refused: "Refused", nonresp: "Nonresponse (don't know and refused together)", not_asked: "Not asked", other_missing: "Other missing" };
+const HX_CATS = ["pro", "anti", "mid", "no_side", "dk", "refused", "nonresp", "not_asked", "other_missing"];
+const HX_CAT_LABELS = { pro: "Protectionist", anti: "Not protectionist", mid: "Middle category", no_side: "No protectionist side", dk: "Don't know", refused: "Refused", nonresp: "Nonresponse (don't know and refused together)", not_asked: "Not asked", other_missing: "Other missing" };
 const hxList = x => x == null ? [] : [].concat(x);
 const hxLevelName = t => t.level ? t.level_label : "Finest in each wave";
 const hxSegment = id => id.replace(/-(bin|orig)-/, "-");
@@ -39,7 +39,8 @@ function hxDataTable(items) {
       const all = hxDist(r.dist_all), orig = hxDist(r.dist_orig);
       const row = {
         timeline_id: t.id, variable_id: it.variable, variable: name, country: it.country, geography: hxLevelName(t),
-        program: w.program, wave: w.wave, wave_key: r.wave_key, study: w.study, question: r.instrument_id || w.instrument, file: w.file, file_variable: w.variable,
+        program: w.program, wave: w.wave, wave_key: r.wave_key, study: w.study, question: r.instrument_id || w.instrument,
+        question_type: w.question_type || "judgement", question_note: w.type_note || "", file: w.file, file_variable: w.variable,
         reference_date: r.reference_date, fieldwork_start: w.date_min, fieldwork_end: w.date_max,
         unit_id: r.unit_id, unit_name: r.unit_id ? (names.get(r.unit_id) || r.unit_id) : "Not coded",
         n_total: r.n_total, n_asked: r.n_asked, n_bin: r.n_bin, n_orig: r.n_orig, p_bin: r.p_bin, se_bin: r.se_bin,
@@ -57,7 +58,7 @@ function hxDataTable(items) {
   return {
     name: "data.csv",
     what: "Regional counts per wave, for each timeline you picked",
-    columns: ["timeline_id", "variable_id", "variable", "country", "geography", "program", "wave", "wave_key", "study", "question", "file", "file_variable",
+    columns: ["timeline_id", "variable_id", "variable", "country", "geography", "program", "wave", "wave_key", "study", "question", "question_type", "question_note", "file", "file_variable",
       "reference_date", "fieldwork_start", "fieldwork_end", "unit_id", "unit_name", "n_total", "n_asked", "n_bin", "n_orig", "p_bin", "se_bin",
       ...HX_CATS.map(c => `n_${c}`), ...orig, "changes_at_wave", "source_id", "flags"],
     rows,
@@ -80,7 +81,7 @@ function hxMappingTable(items) {
         if (a.wave !== key) continue;
         const id = [it.variable, key, w.instrument, w.file, a.var, a.code, a.label, a.coded, a.bin, a.orig, a.rule].join("|");
         if (!rows.has(id)) rows.set(id, {
-          variable_id: it.variable, variable: name, question: w.instrument, program: w.program, wave: w.wave, wave_key: key, date: w.date, study: w.study, file: w.file,
+          variable_id: it.variable, variable: name, question: w.instrument, question_type: w.question_type || "judgement", question_note: w.type_note || "", program: w.program, wave: w.wave, wave_key: key, date: w.date, study: w.study, file: w.file,
           file_variable: a.var, file_variable_label: w.variable_label, question_id: w.question_id, item_no: w.item_no, page: w.page, questionnaire_url: w.questionnaire_url,
           wording: w.wording, answers_offered: w.scale, how_asked: w.presentation, dont_know: w.dk_presentation, interview_mode: w.mode, definitions: w.definition,
           code: a.code, label_in_file: a.label, coded_as: a.coded, coded_as_label: HX_CAT_LABELS[a.coded] || a.coded, bin: a.bin, orig: a.orig, rule: a.rule, why: a.why, status: a.status,
@@ -98,7 +99,7 @@ function hxMappingTable(items) {
   return {
     name: "item_answer_mapping.csv",
     what: "Every question in this export and what each answer was coded to, with the countries using it",
-    columns: ["variable_id", "variable", "question", "program", "wave", "wave_key", "date", "study", "file", "file_variable", "file_variable_label", "question_id", "item_no", "page",
+    columns: ["variable_id", "variable", "question", "question_type", "question_note", "program", "wave", "wave_key", "date", "study", "file", "file_variable", "file_variable_label", "question_id", "item_no", "page",
       "questionnaire_url", "wording", "answers_offered", "how_asked", "dont_know", "interview_mode", "definitions", "code", "label_in_file", "coded_as", "coded_as_label", "bin", "orig", "rule", "why", "status", "countries", "respondents"],
     rows: out,
   };
@@ -226,17 +227,19 @@ data.csv
 One row per timeline x wave x region.
 - timeline_id, geography: the timeline, and the level of geography it counts regions at.
 - question: the harmonized question in that wave. file and file_variable: where it sits in the source data.
+- question_type: judgement (the respondent's own view, with a protectionist side), strength (how strongly; the direction is in the question before) or categorical (answers with no protectionist side). question_note: what to keep in mind about the question, such as "not own view".
 - reference_date, fieldwork_start, fieldwork_end: the date used for the wave, and its fieldwork.
 - unit_id, unit_name: the region. "Not coded" holds respondents whose region code could not be assigned.
 - n_total: respondents in the region and wave. n_asked: those asked the question. n_bin: those coded 1 or 0. n_orig: those on the original scale.
 - p_bin: share coded 1 (protectionist) among n_bin. se_bin: sqrt(p(1-p)/(n_bin-1)).
-- n_pro ... n_other_missing: respondents in each harmonized category. Don't know, refused and not asked stay apart.
+- n_pro ... n_other_missing: respondents in each harmonized category. Don't know, refused and not asked stay apart. n_no_side: answers of a strength or categorical question, which have no protectionist side; such questions have no p_bin and are read on the original scale.
 - orig_1, orig_2, ...: respondents at each value of the original scale. See the orig column of the mapping.
 - changes_at_wave: what changes about the question or coding at this wave.
 - flags: not_covered (the wave does not reach this region), unassignable, pooled_subsamples.
 
 item_answer_mapping.csv
 One row per answer, per question, per wave. It appears once per export and covers every question in it.
+- question_type, question_note: as in data.csv.
 - wording, answers_offered, how_asked, dont_know, interview_mode, definitions: the question as the questionnaire has it. questionnaire_url links to it.
 - code, label_in_file: the answer in the source file.
 - coded_as, bin, orig: what it was coded to. rule and why: the coding rule behind it. status: approved or proposed.

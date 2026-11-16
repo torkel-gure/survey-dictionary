@@ -476,6 +476,8 @@ details.hv-credit p { margin: 6px 0 0; }
 .hv-why { font-size: 12px; color: var(--text-2); min-width: 120px; }
 .hv-tag { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); white-space: nowrap; }
 .hv-tag.used { background: var(--accent-soft); border-color: transparent; }
+.hv-tag.hv-qtype { background: transparent; border-color: var(--accent); color: var(--accent); margin-left: 4px; }
+.hv-qtype-line { font-size: 13px; color: var(--text-2); }
 .hv-meta { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 8px; font-size: 13px; }
 .hv-meta dt { color: var(--muted); }
 .hv-meta dd { margin: 0; overflow-wrap: anywhere; }

@@ -13,7 +13,16 @@ const HV = {
   d: null, shapes: null, tl: null, names: new Map(), group: new Map(), drawAs: new Map(), levelMaps: new Map(), programs: [], scale: { all: {}, wave: {} },
 };
 const HV_WORLD_VIEW = { lon_min: -180, lat_min: -58, lon_max: 180, lat_max: 84 };
-const HV_CODED = { pro: "Protectionist", anti: "Not protectionist", dk: "Don't know", refused: "Refused", not_asked: "Not asked", other_missing: "Other missing" };
+const HV_CODED = { pro: "Protectionist", anti: "Not protectionist", mid: "Middle category", no_side: "No protectionist side", dk: "Don't know", refused: "Refused", nonresp: "Nonresponse", not_asked: "Not asked", other_missing: "Other missing" };
+/* What kind of question it is (Torkel, 2026-11-16). Most are judgements; strength and categorical questions have no
+   protectionist side, so they are kept on their original scale only. A note says what else to keep in mind ("not own view"). */
+const HV_QTYPE = {
+  judgement: { label: "Judgement", text: "The respondent's own view, with a protectionist side: coded 1 or 0, and kept on its original scale." },
+  strength: { label: "Strength", text: "How strongly the respondent holds the view given in the question before. It has no protectionist side of its own, so it is kept on its original scale only." },
+  categorical: { label: "Categorical", text: "The answers have no protectionist side (a choice from a list, how much, a forecast, behavior, or someone else's view), so they are kept on their original scale only." },
+};
+const hvQType = x => HV_QTYPE[x && x.question_type] || HV_QTYPE.judgement;
+const hvQTypeTag = x => x && x.question_type && x.question_type !== "judgement" ? ` <span class="hv-tag hv-qtype">${esc(hvQType(x).label)}</span>` : "";
 const HV_FORMS = { orig: "original scale", bin: "protectionist or not (1 or 0)" };
 const HV_CHANGES = {
   dk_presentation: "How \"don't know\" is presented changes",
@@ -293,7 +302,7 @@ function hvControls() {
     return `<optgroup label="${esc(r)}">${cs.map(c => `<option value="${esc(c.iso3)}"${withAny.has(c.iso3) ? "" : " disabled"}${c.iso3 === HV.iso ? " selected" : ""}>${esc(c.name)}${withData.has(c.iso3) ? "" : withAny.has(c.iso3) ? " (other questions)" : " (no data yet)"}</option>`).join("")}</optgroup>`;
   }).join("");
   // In a country, the questions asked there come first.
-  const opt = x => `<option value="${esc(x.id)}"${x.id === HV.varId ? " selected" : ""}>${esc(x.name)}</option>`;
+  const opt = x => `<option value="${esc(x.id)}"${x.id === HV.varId ? " selected" : ""}>${esc(x.name)}${x.question_type && x.question_type !== "judgement" && !x.name.toLowerCase().includes(hvQType(x).label.toLowerCase()) ? ` (${esc(hvQType(x).label.toLowerCase())})` : ""}</option>`;
   let varOptions = vars.map(opt).join("");
   if (HV.iso && (HV.level === "country" || HV.level === "overview")) {
     const asked = new Set(hvTotalsOfCountry(HV.iso).map(t => t.variable)), name = esc(hvCountryName(HV.iso));
@@ -321,7 +330,7 @@ function hvQuestionList(open) {
   const years = t => +t.first_year === +t.last_year ? `${t.first_year}` : `${t.first_year}–${t.last_year}`;
   const items = rows.map(({ t, v }) => {
     const on = HV.level === "country" && v.id === HV.varId;
-    return `<li${on ? ` class="on"` : ""}><a href="${hvHref({ c: HV.iso }, v.id)}"${on ? ` aria-current="page"` : ""}>${esc(v.name)}</a>
+    return `<li${on ? ` class="on"` : ""}><a href="${hvHref({ c: HV.iso }, v.id)}"${on ? ` aria-current="page"` : ""}>${esc(v.name)}</a>${hvQTypeTag(v)}
       <span class="muted">${esc(years(t))} · ${t.waves} ${+t.waves === 1 ? "wave" : "waves"} · ${fmt(t.n)} respondents</span></li>`;
   }).join("");
   return `<details class="card hv-qlist" id="hvQList"${open ? " open" : ""}>
@@ -363,8 +372,9 @@ function hvVariableCard() {
   const answersOpen = HV.level === "country" && hvList(HV.d.answers).some(a => a.status === "proposed");
   const regionsOpen = HV.level === "country" && hvList(HV.d.coding).some(c => c.status === "proposed");
   const tag = answersOpen ? "Coding proposed, not yet confirmed" : regionsOpen ? "Region coding proposed, not yet confirmed" : "";
-  return `<section class="card hv-var"><h3>${esc(v.name)}${tag ? ` <span class="hv-tag">${tag}</span>` : ""}</h3>
+  return `<section class="card hv-var"><h3>${esc(v.name)}${hvQTypeTag(v)}${tag ? ` <span class="hv-tag">${tag}</span>` : ""}</h3>
     <p>${esc(v.definition)}.</p>
+    <p class="hv-qtype-line"><b>Question type: ${esc(hvQType(v).label)}.</b> ${esc(hvQType(v).text)}${v.type_note ? ` <b>Note:</b> ${esc(v.type_note)}.` : ""}</p>
     <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}, with ${esc(versions)}. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.${HV.level === "country" ? "" : " Open a country to see every question and how it was coded."}</p></section>`;
 }
 
@@ -744,6 +754,7 @@ function hvWavePanel() {
     <dl class="hv-meta">
       <dt>Question</dt><dd>${w.question_id ? `${esc(w.question_id)}, item ${esc(w.item_no)}, page ${esc(w.page)} of the ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"} (study ${esc(w.study)})`
         : `<span class="muted">The questionnaire for this wave is not fetched yet, so the wording below is the variable's label in the file.</span>`}</dd>
+      <dt>Question type</dt><dd>${esc(hvQType(w).label)}${w.type_note ? `. <b>${esc(w.type_note)}</b>` : ""}</dd>
       ${row("Wording", w.wording)}
       ${row("Answers offered", w.scale)}
       ${row("How it is asked", w.presentation)}
