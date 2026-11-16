@@ -31,8 +31,13 @@ $groups = $changed | Where-Object { $_ -notin $index } | Group-Object DirectoryN
 foreach ($g in $groups) {
   $dir = $g.Name.Substring($root.Length).TrimStart("\").Replace("\", "/")
   $dest = if ($dir) { "$bucket/data/harmonized/$dir/" } else { "$bucket/data/harmonized/" }
-  $g.Group.FullName | gcloud storage cp -I $dest --cache-control="public, max-age=300"
-  if ($LASTEXITCODE -ne 0) { throw "upload to $dest failed ($LASTEXITCODE)" }
+  # Paths go as arguments in batches (piping them in Windows PowerShell 5.1 adds a byte-order mark to the first one).
+  $paths = @($g.Group.FullName)
+  for ($i = 0; $i -lt $paths.Count; $i += 150) {
+    $batch = $paths[$i..([Math]::Min($i + 149, $paths.Count - 1))]
+    gcloud storage cp @batch $dest --cache-control="public, max-age=300"
+    if ($LASTEXITCODE -ne 0) { throw "upload to $dest failed ($LASTEXITCODE)" }
+  }
 }
 if ($index) {
   gcloud storage cp $index.FullName "$bucket/data/harmonized/" --cache-control="public, max-age=300"
