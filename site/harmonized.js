@@ -22,6 +22,8 @@ const HV_QTYPE = {
   categorical: { label: "Categorical", text: "The answers have no protectionist side (a choice from a list, how much, a forecast, behavior, or someone else's view), so they are kept on their original scale only." },
 };
 const hvQType = x => HV_QTYPE[x && x.question_type] || HV_QTYPE.judgement;
+// A note that only repeats what the type already says (a strength follow-up's "how strongly") is left out.
+const hvTypeNote = x => x && x.type_note && !(x.question_type === "strength" && /^How strongly; the direction is in the question before$/.test(x.type_note)) ? x.type_note : "";
 const hvQTypeTag = x => x && x.question_type && x.question_type !== "judgement" ? ` <span class="hv-tag hv-qtype">${esc(hvQType(x).label)}</span>` : "";
 const HV_FORMS = { orig: "original scale", bin: "protectionist or not (1 or 0)" };
 const HV_CHANGES = {
@@ -374,7 +376,7 @@ function hvVariableCard() {
   const tag = answersOpen ? "Coding proposed, not yet confirmed" : regionsOpen ? "Region coding proposed, not yet confirmed" : "";
   return `<section class="card hv-var"><h3>${esc(v.name)}${hvQTypeTag(v)}${tag ? ` <span class="hv-tag">${tag}</span>` : ""}</h3>
     <p>${esc(v.definition)}.</p>
-    <p class="hv-qtype-line"><b>Question type: ${esc(hvQType(v).label)}.</b> ${esc(hvQType(v).text)}${v.type_note ? ` <b>Note:</b> ${esc(v.type_note)}.` : ""}</p>
+    <p class="hv-qtype-line"><b>Question type: ${esc(hvQType(v).label)}.</b> ${esc(hvQType(v).text)}${hvTypeNote(v) ? ` <b>Note:</b> ${esc(hvTypeNote(v))}.` : ""}</p>
     <p class="muted">Asked in ${esc(hvList(v.programs).join(" and "))}, ${esc(y0)}–${esc(y1)}, with ${esc(versions)}. Harmonized so far for ${t.length} ${t.length === 1 ? "country" : "countries"}.${HV.level === "country" ? "" : " Open a country to see every question and how it was coded."}</p></section>`;
 }
 
@@ -754,7 +756,7 @@ function hvWavePanel() {
     <dl class="hv-meta">
       <dt>Question</dt><dd>${w.question_id ? `${esc(w.question_id)}, item ${esc(w.item_no)}, page ${esc(w.page)} of the ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"} (study ${esc(w.study)})`
         : `<span class="muted">The questionnaire for this wave is not fetched yet, so the wording below is the variable's label in the file.</span>`}</dd>
-      <dt>Question type</dt><dd>${esc(hvQType(w).label)}${w.type_note ? `. <b>${esc(w.type_note)}</b>` : ""}</dd>
+      <dt>Question type</dt><dd>${esc(hvQType(w).label)}${hvTypeNote(w) ? `. <b>${esc(hvTypeNote(w))}</b>` : ""}</dd>
       ${row("Wording", w.wording)}
       ${row("Answers offered", w.scale)}
       ${row("How it is asked", w.presentation)}
