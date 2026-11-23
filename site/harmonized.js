@@ -117,7 +117,8 @@ const hvCountryName = iso => (HV.index.countries || {})[iso] || (HV.world.countr
 const hvCountryRegion = iso => (HV.world.countries.find(c => c.iso3 === iso) || {}).region;
 const hvHref = (extra = {}, varId = HV.varId) => "#" + new URLSearchParams({ v: "harmonized", var: varId, ...extra }).toString();
 // Whether a wave's question has an item number (Q.32 item 1); a question asked on its own has none (Q.34).
-const hvHasItem = w => w.item_no != null && String(w.item_no).trim() !== "";
+const hvHas = v => v != null && String(v).trim() !== "";
+const hvHasItem = w => hvHas(w.item_no);
 
 /* ---------- color classes: darker means more ---------- */
 // Up to five classes from the quantiles, rounded to two digits so the legend reads easily.
@@ -756,7 +757,7 @@ function hvWavePanel() {
     ${changes.length ? `<div class="hv-note"><b>Changes at this wave</b><ul>${changes.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
     <h4>The question</h4>
     <dl class="hv-meta">
-      <dt>Question</dt><dd>${w.question_id ? `${esc(w.question_id)}${hvHasItem(w) ? `, item ${esc(w.item_no)}` : ""}, page ${esc(w.page)} of the ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"} (study ${esc(w.study)})`
+      <dt>Question</dt><dd>${w.question_id ? `${esc(w.question_id)}${hvHasItem(w) ? `, item ${esc(w.item_no)}` : ""}${hvHas(w.page) ? `, page ${esc(w.page)} of the` : ", in the"} ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"}${hvHas(w.study) ? ` (study ${esc(w.study)})` : ""}`
         : `<span class="muted">The questionnaire for this wave is not fetched yet, so the wording below is the variable's label in the file.</span>`}</dd>
       <dt>Question type</dt><dd>${esc(hvQType(w).label)}${hvTypeNote(w) ? `. <b>${esc(hvTypeNote(w))}</b>` : ""}</dd>
       ${row("Wording", w.wording)}
@@ -833,7 +834,7 @@ function hvQuestions() {
   const rows = waves.map((w, i) => {
     const prev = waves[i - 1];
     const cells = fields.map(f => `<td class="${prev && prev[f] !== w[f] ? "hv-diff" : ""}">${esc(w[f])}</td>`).join("");
-    return `<tr class="row${w.wave_key === HV.wave ? " on" : ""}" data-qwave="${esc(w.wave_key)}" tabindex="0"><td>${esc(hvYear(w))}</td><td>${esc(hvWaveLabel(w))}</td><td>${w.question_id ? `${esc(w.question_id)}${hvHasItem(w) ? `.${esc(w.item_no)}` : ""}, p. ${esc(w.page)}` : `<span class="muted">not read yet</span>`}</td><td><code>${esc(w.variable)}</code></td>${cells}</tr>`;
+    return `<tr class="row${w.wave_key === HV.wave ? " on" : ""}" data-qwave="${esc(w.wave_key)}" tabindex="0"><td>${esc(hvYear(w))}</td><td>${esc(hvWaveLabel(w))}</td><td>${w.question_id ? `${esc(w.question_id)}${hvHasItem(w) ? `.${esc(w.item_no)}` : ""}${hvHas(w.page) ? `, p. ${esc(w.page)}` : ""}` : `<span class="muted">not read yet</span>`}</td><td><code>${esc(w.variable)}</code></td>${cells}</tr>`;
   }).join("");
   return `<section class="card hv-qs"><h3>Every question in this timeline</h3>
     <p class="muted">${waves.length} waves. ${summary ? `Versions across them: ${esc(summary)}. ` : ""}Highlighted cells differ from the wave before. Click a wave for how its answers were coded.</p>
