@@ -779,6 +779,25 @@ function hvWavePanel() {
     <div class="hv-srcs">${sources.map(s => `<button type="button" class="btn small" data-src="${esc(s)}">${esc(hvSourceLabel(s))}</button>`).join("")}</div>`;
 }
 
+// Waves in view where only some of a region's parts had respondents. The region is shown all the same, with this note.
+function hvPartly(region) {
+  const level = HV.tl && HV.tl.level ? hvList(HV.d.levels).find(l => l.id === HV.tl.level) : null;
+  if (!level) return [];
+  const keys = new Set(hvTlWaveKeys()), order = new Map(HV.d.waves.map((w, i) => [w.wave_key, i]));
+  return hvList(level.partly)
+    .filter(p => keys.has(p.wave) && (hvIsAll() ? hvTlGroup(p.unit) === region : p.wave === HV.wave && p.unit === region))
+    .sort((a, b) => order.get(a.wave) - order.get(b.wave));
+}
+function hvPartlyNote(region) {
+  const list = hvPartly(region);
+  if (!list.length) return "";
+  if (!hvIsAll()) return `<p class="muted">${fmt(list[0].parts)} of its ${fmt(list[0].parts_of)} parts had respondents in this wave.</p>`;
+  const each = list.map(p => `${esc(hvWaveLabel(hvWave(p.wave)))}${p.unit === region ? "" : `, ${esc(hvName(p.unit))}`} (${fmt(p.parts)} of ${fmt(p.parts_of)})`).join(", ");
+  const n = new Set(list.map(p => p.wave)).size;
+  const head = `In ${n} ${n === 1 ? "wave" : "waves"}, only some of its parts had respondents`;
+  return list.length <= 3 ? `<p class="muted">${head}: ${each}.</p>` : `<details class="hv-more"><summary>${head}</summary><p class="muted">${each}</p></details>`;
+}
+
 function hvRegionPanel(totals) {
   const cells = hvCellsInView().filter(c => c.unit && hvRegion(c.unit) === HV.unit);
   const waves = new Set(cells.map(c => c.wave));
@@ -787,6 +806,7 @@ function hvRegionPanel(totals) {
   const rows = cells.slice().sort((a, b) => order.get(a.wave) - order.get(b.wave) || a.source.localeCompare(b.source) || String(a.code).localeCompare(String(b.code)));
   return `<div class="hv-panel-head"><h3>${esc(hvName(HV.unit))}</h3><button type="button" class="btn small" data-clear>Close</button></div>
     <p><b>${fmt(totals.get(HV.unit))}</b> respondents in ${waves.size} ${waves.size === 1 ? "wave" : "waves"}.${parts.length ? ` <span class="muted">Coded as ${esc(parts.map(hvName).join(", "))}${cells.some(c => c.unit === HV.unit) ? " in some waves" : ""}.</span>` : ""}</p>
+    ${hvPartlyNote(HV.unit)}
     <p class="muted">Click a source to see how its regions were coded.</p>
     <div class="hv-scroll"><table class="occ"><thead><tr><th>Year</th><th>Source</th><th>Region variable</th><th>Code</th><th>Label in the file</th>${parts.length ? "<th>Coded as</th>" : ""}<th class="num">Respondents</th></tr></thead>
     <tbody>${rows.map(c => `<tr class="row" data-src="${esc(c.source)}" tabindex="0"><td>${esc(hvYear(hvWave(c.wave)))}</td><td>${esc(hvSourceLabel(c.source))}</td>

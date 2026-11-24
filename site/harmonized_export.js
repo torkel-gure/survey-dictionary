@@ -235,7 +235,7 @@ One row per timeline x wave x region.
 - n_pro ... n_other_missing: respondents in each harmonized category. Don't know, refused and not asked stay apart. n_no_side: answers of a strength or categorical question, which have no protectionist side; such questions have no p_bin and are read on the original scale.
 - orig_1, orig_2, ...: respondents at each value of the original scale. See the orig column of the mapping.
 - changes_at_wave: what changes about the question or coding at this wave.
-- flags: not_covered (the wave does not reach this region), unassignable, pooled_subsamples.
+- flags: not_covered (the wave does not reach this region), unassignable, pooled_subsamples, partly_measured (only some of the region's parts had respondents in the wave). Several flags are joined with ;.
 
 item_answer_mapping.csv
 One row per answer, per question, per wave. It appears once per export and covers every question in it.
