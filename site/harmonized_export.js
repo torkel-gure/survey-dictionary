@@ -14,13 +14,22 @@ const hxSegment = id => id.replace(/-(bin|orig)-/, "-");
 /* ---------- the tables ---------- */
 const hxDist = x => { if (!x) return {}; try { return JSON.parse(x); } catch (e) { return {}; } };
 
+// The questions of a wave. One, unless its sources were asked through different variables (Cyprus's two communities).
+const hxWaveRows = (d, key) => hxList(d.waves).filter(w => w.wave_key === key);
+// Those a timeline's counts come from: its own questions.
+const hxWaveQuestions = (d, key, instruments) => {
+  const rows = hxWaveRows(d, key), mine = rows.filter(w => instruments.includes(w.instrument));
+  return mine.length ? mine : rows;
+};
+const hxJoin = (rows, f) => [...new Set(rows.map(w => w[f]).filter(x => x != null && x !== ""))].join("; ");
+
 // One row per timeline x wave x region, holding both the 1-or-0 share and the original scale.
 function hxDataTable(items) {
   const rows = [];
   const origKeys = new Set();
   for (const it of items) {
     const { t, d, e, name } = it;
-    const waves = new Map(hxList(d.waves).map(w => [w.wave_key, w]));
+    const inst = hxList(t.instruments);
     const names = new Map(hxList(d.units).map(u => [u.id, u.name]));
     const changes = new Map(hxList(t.changes).map(c => [c.wave, hxList(c.kinds).join(";")]));
     const order = new Map(hxList(t.waves).map((k, i) => [k, i]));
@@ -35,12 +44,12 @@ function hxDataTable(items) {
     }
     const here = [...merged.values()].sort((a, b) => order.get(a.wave_key) - order.get(b.wave_key) || String(a.unit_id || "~").localeCompare(String(b.unit_id || "~")));
     for (const r of here) {
-      const w = waves.get(r.wave_key) || {};
+      const ws = hxWaveQuestions(d, r.wave_key, inst), w = ws[0] || {};
       const all = hxDist(r.dist_all), orig = hxDist(r.dist_orig);
       const row = {
         timeline_id: t.id, variable_id: it.variable, variable: name, country: it.country, geography: hxLevelName(t),
         program: w.program, wave: w.wave, wave_key: r.wave_key, study: w.study, question: r.instrument_id || w.instrument,
-        question_type: w.question_type || "judgement", question_note: w.type_note || "", file: w.file, file_variable: w.variable,
+        question_type: w.question_type || "judgement", question_note: w.type_note || "", file: hxJoin(ws, "file"), file_variable: hxJoin(ws, "variable"),
         reference_date: r.reference_date, fieldwork_start: w.date_min, fieldwork_end: w.date_max,
         unit_id: r.unit_id, unit_name: r.unit_id ? (names.get(r.unit_id) || r.unit_id) : "Not coded",
         n_total: r.n_total, n_asked: r.n_asked, n_bin: r.n_bin, n_orig: r.n_orig, p_bin: r.p_bin, se_bin: r.se_bin,
@@ -71,36 +80,37 @@ function hxMappingTable(items) {
   const seen = new Set();
   for (const it of items) {
     const { t, d, name } = it;
-    const waves = new Map(hxList(d.waves).map(w => [w.wave_key, w]));
-    for (const key of hxList(t.waves)) {
-      const once = `${it.variable}|${it.country}|${key}`;
+    for (const key of hxList(t.waves)) for (const w of hxWaveRows(d, key)) {
+      const once = `${it.variable}|${it.country}|${key}|${w.variable}|${w.file}`;
       if (seen.has(once)) continue; // two timelines of a country can share a wave
       seen.add(once);
-      const w = waves.get(key) || {};
+      const notUsed = hxList(d.not_used).filter(x => x.wave === key && x.note).map(x => x.note);
       for (const a of hxList(d.answers)) {
-        if (a.wave !== key) continue;
+        if (a.wave !== key || a.var !== w.variable) continue;
         const id = [it.variable, key, w.instrument, w.file, a.var, a.code, a.label, a.coded, a.bin, a.orig, a.rule].join("|");
         if (!rows.has(id)) rows.set(id, {
           variable_id: it.variable, variable: name, question: w.instrument, question_type: w.question_type || "judgement", question_note: w.type_note || "", program: w.program, wave: w.wave, wave_key: key, date: w.date, study: w.study, file: w.file,
           file_variable: a.var, file_variable_label: w.variable_label, question_id: w.question_id, item_no: w.item_no, page: w.page, questionnaire_url: w.questionnaire_url,
           wording: w.wording, answers_offered: w.scale, how_asked: w.presentation, dont_know: w.dk_presentation, interview_mode: w.mode, definitions: w.definition,
           code: a.code, label_in_file: a.label, coded_as: a.coded, coded_as_label: HX_CAT_LABELS[a.coded] || a.coded, bin: a.bin, orig: a.orig, rule: a.rule, why: a.why, status: a.status,
+          _notes: new Set(),
           _countries: new Set(), respondents: 0,
         });
         const r = rows.get(id);
         r._countries.add(it.country);
+        for (const x of notUsed) r._notes.add(x);
         r.respondents += a.n || 0;
       }
     }
   }
-  const out = [...rows.values()].map(r => ({ ...r, countries: [...r._countries].sort().join(";") }));
+  const out = [...rows.values()].map(r => ({ ...r, countries: [...r._countries].sort().join(";"), variables_not_used: [...r._notes].join(" ") }));
   const varOrder = [...new Set(items.map(i => i.variable))];
   out.sort((a, b) => varOrder.indexOf(a.variable_id) - varOrder.indexOf(b.variable_id) || String(a.date).localeCompare(String(b.date)) || String(a.file_variable).localeCompare(String(b.file_variable)));
   return {
     name: "item_answer_mapping.csv",
     what: "Every question in this export and what each answer was coded to, with the countries using it",
     columns: ["variable_id", "variable", "question", "question_type", "question_note", "program", "wave", "wave_key", "date", "study", "file", "file_variable", "file_variable_label", "question_id", "item_no", "page",
-      "questionnaire_url", "wording", "answers_offered", "how_asked", "dont_know", "interview_mode", "definitions", "code", "label_in_file", "coded_as", "coded_as_label", "bin", "orig", "rule", "why", "status", "countries", "respondents"],
+      "questionnaire_url", "wording", "answers_offered", "how_asked", "dont_know", "interview_mode", "definitions", "code", "label_in_file", "coded_as", "coded_as_label", "bin", "orig", "rule", "why", "status", "countries", "respondents", "variables_not_used"],
     rows: out,
   };
 }
@@ -117,10 +127,12 @@ function hxRegionTable(country, items) {
     const maps = new Map(hxList(d.levels).map(l => [l.id, new Map(hxList(l.members).map(m => [m.fine, m.unit]))]));
     const waveKeys = new Set(hxList(t.waves));
     const waves = new Map(hxList(d.waves).map(w => [w.wave_key, w]));
-    const sourceWave = new Map(hxList(d.cells).map(c => [c.source, c.wave]));
+    // A source can have two waves: a question asked again after the election has its own.
+    const sourceWave = new Map();
+    for (const c of hxList(d.cells)) if (waveKeys.has(c.wave) && !sourceWave.has(c.source)) sourceWave.set(c.source, c.wave);
     for (const c of hxList(d.coding)) {
       const key = sourceWave.get(c.source);
-      if (!key || !waveKeys.has(key)) continue;
+      if (!key) continue;
       const id = `${c.source}|${c.var}|${c.code}`;
       if (rows.has(id)) continue;
       const w = waves.get(key) || {};
@@ -153,7 +165,8 @@ function hxRespondentTable(items) {
   for (const it of items) {
     const order = new Map(hxList(it.t.waves).map((k, i) => [k, i]));
     const level = it.t.level ? new Map(hxList((hxList(it.d.levels).find(l => l.id === it.t.level) || {}).members).map(m => [m.fine, m.unit])) : null;
-    const mine = hxList(it.r.blocks).filter(b => order.has(b.wave)).sort((a, b) => order.get(a.wave) - order.get(b.wave) || String(a.source).localeCompare(String(b.source)));
+    const inst = hxList(it.t.instruments);
+    const mine = hxList(it.r.blocks).filter(b => order.has(b.wave) && (!inst.length || inst.includes(b.question))).sort((a, b) => order.get(a.wave) - order.get(b.wave) || String(a.source).localeCompare(String(b.source)));
     for (const b of mine) parts.push({ it, b, level });
   }
   function* each() {
@@ -244,6 +257,7 @@ One row per answer, per question, per wave. It appears once per export and cover
 - code, label_in_file: the answer in the source file.
 - coded_as, bin, orig: what it was coded to. rule and why: the coding rule behind it. status: approved or proposed.
 - countries: which countries in this export use this row. respondents: how many, across them.
+- variables_not_used: each concept has one variable per wave. Where a file has more, this says which are not used and why; the one with more answer categories is used.
 
 region_mapping_<country>.csv
 One file per country. One row per region code in each source, in the waves of the picked timelines.

@@ -45,13 +45,20 @@ const hvList = x => x == null ? [] : [].concat(x);
 const hvIsAll = () => HV.wave === "all";
 const hvName = id => HV.names.get(id) || id;
 const hvWave = key => HV.d.waves.find(w => w.wave_key === key);
+// The questions behind a wave's counts: one, unless its sources were asked through different variables (Cyprus's two communities).
+const hvWaveVars = key => HV.d.waves.filter(w => w.wave_key === key);
+const hvWaveCount = waves => new Set(waves.map(w => w.wave_key)).size;
+// Variables the concept does not use in a wave, each with a note on why and on the one used instead.
+const hvNotUsed = key => hvList(HV.d.not_used).filter(x => x.note && (key == null || x.wave === key));
 const hvWaveLabel = w => `${w.program} ${w.wave}`;
 const hvYear = w => String(w.date).slice(0, 4);
 const hvMonth = w => new Date(w.date + "T00:00:00Z").toLocaleString("en", { month: "long", year: "numeric", timeZone: "UTC" });
 // Some region variables hold codes with no label: the code itself is what the file has.
 const hvLabel = x => x ? esc(x) : `<span class="muted">no label in the file</span>`;
 const hvTlWaveKeys = () => hvList(HV.tl.waves);
-const hvTlWaves = () => { const k = new Set(hvTlWaveKeys()); return HV.d.waves.filter(w => k.has(w.wave_key)); };
+// One entry per wave, for the slider; hvTlQuestions has every question in them.
+const hvTlQuestions = () => { const k = new Set(hvTlWaveKeys()); return HV.d.waves.filter(w => k.has(w.wave_key)); };
+const hvTlWaves = () => { const seen = new Set(); return hvTlQuestions().filter(w => !seen.has(w.wave_key) && seen.add(w.wave_key)); };
 // A coded unit with no boundary of its own is drawn as the unit containing it.
 const hvDrawn = unit => HV.drawAs.get(unit) || unit;
 // The region a coded unit counts as in the selected timeline.
@@ -473,7 +480,7 @@ const hvTlTitle = t => t.level ? hvRegionsText(t.n_units) : `Finest in each wave
 const hvTlSub = t => t.level ? t.level_label : `${hvLevelSeq(t).join(", then ")} regions`;
 
 function hvTimelineChart() {
-  const waves = HV.d.waves;
+  const waves = HV.d.waves.filter((w, i, all) => all.findIndex(x => x.wave_key === w.wave_key) === i);
   const y0 = +hvYear(waves[0]), y1 = +hvYear(waves[waves.length - 1]) + 1;
   const T0 = Date.UTC(y0, 0, 1), T1 = Date.UTC(y1, 0, 1);
   const pct = d => (100 * (Date.parse(d + "T00:00:00Z") - T0) / (T1 - T0)).toFixed(2);
@@ -548,7 +555,7 @@ function hvTimelineCard() {
   const levelText = joined
     ? `${hvRegionsText(t.n_units)}. Regions that changed between waves are joined, and the rest stay at their lowest level, so the same area is compared in all ${t.n_waves} waves.`
     : t.level
-    ? `${hvRegionsText(t.n_units)} at ${t.level_label}. Reaches ${t.n_waves} of ${HV.d.waves.length} waves in ${hvCountryName(HV.iso)}.${changing ? " Some regions change along the way, so they are not the same area in every wave. With all waves selected, the map joins them." : ""}`
+    ? `${hvRegionsText(t.n_units)} at ${t.level_label}. Reaches ${t.n_waves} of ${hvWaveCount(HV.d.waves)} waves in ${hvCountryName(HV.iso)}.${changing ? " Some regions change along the way, so they are not the same area in every wave. With all waves selected, the map joins them." : ""}`
     : `The finest coding each wave has, so the regions change from ${seq.join(" to ")} along the way. With all waves selected, the map shows regions that stay the same.`;
   let lastYear = null;
   const ticks = waves.map((w, n) => {
@@ -747,15 +754,31 @@ function hvIntroPanel(totals) {
 
 /* The depth of the coding in one wave: the question as asked, what each answer was coded to, how regions were coded. */
 function hvWavePanel() {
-  const w = hvWave(HV.wave);
+  const w = hvWave(HV.wave), vars = hvWaveVars(HV.wave);
   const changes = hvChangeTexts(hvFlagKinds(hvChangesAt(HV.tl, w.wave_key)));
-  const answers = hvList(HV.d.answers).filter(a => a.wave === w.wave_key);
   const sources = [...new Set(hvCellsInView().map(c => c.source))];
-  const leftOut = x => x == null ? `<span class="muted">left out</span>` : esc(x);
-  const row = (dt, dd) => dd ? `<dt>${esc(dt)}</dt><dd>${esc(dd)}</dd>` : "";
   return `<div class="hv-panel-head"><h3>${esc(hvWaveLabel(w))}, ${esc(hvMonth(w))}</h3><button type="button" class="btn small" id="hvCloseWave">All waves</button></div>
     ${changes.length ? `<div class="hv-note"><b>Changes at this wave</b><ul>${changes.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div>` : ""}
-    <h4>The question</h4>
+    ${vars.length > 1 ? `<p class="muted">${vars.length} variables feed this wave, each asked of other respondents: ${vars.map(v => `<code>${esc(v.variable)}</code>${hvVarWho(v)}`).join(", ")}. Nobody is counted twice.</p>` : ""}
+    ${hvNotUsedNote(hvNotUsed(w.wave_key), "Not used from this wave")}
+    ${vars.map(v => hvQuestionBlock(v, vars.length > 1)).join("")}
+    <h4>How its regions were coded</h4>
+    <p class="muted">${w.fine_units} regions coded${w.coded_level ? ` at ${esc(w.coded_level)}` : ""}${HV.tl.level && HV.tl.level_label !== w.coded_level ? `, counted at ${esc(HV.tl.level_label)} in this timeline` : ""}. Click a source for every code.</p>
+    <div class="hv-srcs">${sources.map(s => `<button type="button" class="btn small" data-src="${esc(s)}">${esc(hvSourceLabel(s))}</button>`).join("")}</div>`;
+}
+// Whom a variable was asked of, where a wave has several.
+function hvVarWho(w) {
+  const who = [...new Set(String(w.sources || "").split(";").filter(Boolean).map(hvSubsample).filter(Boolean))];
+  return who.length ? ` (${esc(who.join(", "))})` : "";
+}
+const hvNotUsedText = x => x.note + (x.status === "proposed" ? " This choice is proposed, not yet confirmed." : "");
+const hvNotUsedNote = (list, head) => list.length ? `<div class="hv-note"><b>${esc(head)}</b><ul>${[...new Set(list.map(hvNotUsedText))].map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+// One variable's question and what its answers were coded to.
+function hvQuestionBlock(w, several) {
+  const answers = hvList(HV.d.answers).filter(a => a.wave === w.wave_key && a.var === w.variable);
+  const leftOut = x => x == null ? `<span class="muted">left out</span>` : esc(x);
+  const row = (dt, dd) => dd ? `<dt>${esc(dt)}</dt><dd>${esc(dd)}</dd>` : "";
+  return `<h4>The question${several ? `: <code>${esc(w.variable)}</code>${hvVarWho(w)}` : ""}</h4>
     <dl class="hv-meta">
       <dt>Question</dt><dd>${w.question_id ? `${esc(w.question_id)}${hvHasItem(w) ? `, item ${esc(w.item_no)}` : ""}${hvHas(w.page) ? `, page ${esc(w.page)} of the` : ", in the"} ${w.questionnaire_url ? `<a href="${esc(w.questionnaire_url)}" rel="noopener">questionnaire</a>` : "questionnaire"}${hvHas(w.study) ? ` (study ${esc(w.study)})` : ""}`
         : `<span class="muted">The questionnaire for this wave is not fetched yet, so the wording below is the variable's label in the file.</span>`}</dd>
@@ -767,16 +790,13 @@ function hvWavePanel() {
       ${row("Interview mode", w.mode)}
       ${row("Definitions given", w.definition)}
       ${row("Note", w.notes)}
-      <dt>In the file</dt><dd>${esc(w.file)}: <code>${esc(w.variable)}</code>${w.variable_label ? `, ${esc(w.variable_label)}` : ""}</dd>
+      <dt>In the file</dt><dd>${esc(w.file)}: <code>${esc(w.variable)}</code>${w.variable_label ? `, ${esc(w.variable_label)}` : ""} (${fmt(w.n)} respondents)</dd>
       <dt>Fieldwork</dt><dd>${esc(w.date_min)} to ${esc(w.date_max)}, from the ${esc(w.date_basis)}</dd>
     </dl>
     <h4>What the answers were coded to</h4>
     ${answers.some(a => a.status === "proposed") ? `<p class="muted">This coding is proposed, not yet confirmed.</p>` : ""}
     <div class="hv-scroll"><table class="occ"><thead><tr><th>Code</th><th>Label in the file</th><th class="num">Respondents</th><th>Coded as</th><th class="num">1 or 0</th><th class="num">Original scale</th><th>Why</th></tr></thead>
-      <tbody>${answers.map(a => `<tr><td>${esc(a.code)}</td><td>${hvLabel(a.label)}</td><td class="num">${fmt(a.n)}</td><td>${esc(HV_CODED[a.coded] || a.coded)}</td><td class="num">${leftOut(a.bin)}</td><td class="num">${leftOut(a.orig)}</td><td class="hv-why">${esc(a.why || "")}</td></tr>`).join("")}</tbody></table></div>
-    <h4>How its regions were coded</h4>
-    <p class="muted">${w.fine_units} regions coded${w.coded_level ? ` at ${esc(w.coded_level)}` : ""}${HV.tl.level && HV.tl.level_label !== w.coded_level ? `, counted at ${esc(HV.tl.level_label)} in this timeline` : ""}. Click a source for every code.</p>
-    <div class="hv-srcs">${sources.map(s => `<button type="button" class="btn small" data-src="${esc(s)}">${esc(hvSourceLabel(s))}</button>`).join("")}</div>`;
+      <tbody>${answers.map(a => `<tr><td>${esc(a.code)}</td><td>${hvLabel(a.label)}</td><td class="num">${fmt(a.n)}</td><td>${esc(HV_CODED[a.coded] || a.coded)}</td><td class="num">${leftOut(a.bin)}</td><td class="num">${leftOut(a.orig)}</td><td class="hv-why">${esc(a.why || "")}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 // Waves in view where only some of a region's parts had respondents. The region is shown all the same, with this note.
@@ -846,7 +866,8 @@ function hvSourcePanel() {
 
 /* Every question in the selected harmonization, wave by wave, so differences between versions show. */
 function hvQuestions() {
-  const waves = hvTlWaves();
+  const waves = hvTlQuestions();
+  const notUsed = hvNotUsed(null);
   const fields = ["wording", "scale", "presentation", "dk_presentation", "mode", "definition"];
   const heads = { wording: "Wording", scale: "Answers offered", presentation: "How it is asked", dk_presentation: "Don't know", mode: "Mode", definition: "Definitions given" };
   const versions = f => new Set(waves.map(w => w[f])).size;
@@ -857,8 +878,11 @@ function hvQuestions() {
     return `<tr class="row${w.wave_key === HV.wave ? " on" : ""}" data-qwave="${esc(w.wave_key)}" tabindex="0"><td>${esc(hvYear(w))}</td><td>${esc(hvWaveLabel(w))}</td><td>${w.question_id ? `${esc(w.question_id)}${hvHasItem(w) ? `.${esc(w.item_no)}` : ""}${hvHas(w.page) ? `, p. ${esc(w.page)}` : ""}` : `<span class="muted">not read yet</span>`}</td><td><code>${esc(w.variable)}</code></td>${cells}</tr>`;
   }).join("");
   return `<section class="card hv-qs"><h3>Every question in this timeline</h3>
-    <p class="muted">${waves.length} waves. ${summary ? `Versions across them: ${esc(summary)}. ` : ""}Highlighted cells differ from the wave before. Click a wave for how its answers were coded.</p>
-    <div class="hv-scroll"><table class="occ hv-qtable"><thead><tr><th>Year</th><th>Wave</th><th>Question</th><th>Variable</th>${fields.map(f => `<th>${esc(heads[f])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div></section>`;
+    <p class="muted">${hvWaveCount(waves)} waves. ${summary ? `Versions across them: ${esc(summary)}. ` : ""}Highlighted cells differ from the wave before. Click a wave for how its answers were coded.</p>
+    <div class="hv-scroll"><table class="occ hv-qtable"><thead><tr><th>Year</th><th>Wave</th><th>Question</th><th>Variable</th>${fields.map(f => `<th>${esc(heads[f])}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>
+    ${notUsed.length ? `<details class="hv-more"><summary>${notUsed.length} ${notUsed.length === 1 ? "variable" : "variables"} not used: each concept has one variable per wave</summary>
+    <div class="hv-scroll"><table class="occ"><thead><tr><th>Wave</th><th>Not used</th><th>Used instead</th><th>Why</th></tr></thead>
+    <tbody>${notUsed.map(x => `<tr><td>${esc(String(x.wave).replace(":", " "))}</td><td><code>${esc(x.variable)}</code> ${esc(x.variable_label || "")}</td><td><code>${esc(x.used_variable)}</code></td><td class="hv-why">${esc(hvNotUsedText(x))}</td></tr>`).join("")}</tbody></table></div></details>` : ""}</section>`;
 }
 
 function hvNotCoded() {
