@@ -8,12 +8,29 @@
 const HX_CATS = ["pro", "anti", "mid", "no_side", "dk", "refused", "nonresp", "not_asked", "other_missing"];
 const HX_CAT_LABELS = { pro: "Protectionist", anti: "Not protectionist", mid: "Middle category", no_side: "No protectionist side", dk: "Don't know", refused: "Refused", nonresp: "Nonresponse (don't know and refused together)", not_asked: "Not asked", other_missing: "Other missing" };
 const hxList = x => x == null ? [] : [].concat(x);
-const hxLevelName = t => t.level ? t.level_label : "Finest in each wave";
+const hxLevelName = t => t.all ? "All observations, finest in each wave" : t.level ? t.level_label : "Finest in each wave";
 const hxSegment = id => id.replace(/-(bin|orig)-/, "-");
 
 /* ---------- the tables ---------- */
 const hxDist = x => { if (!x) return {}; try { return JSON.parse(x); } catch (e) { return {}; } };
 
+// Every observation of a question in a country, as a timeline of its own ("all"): counts per wave and region from the
+// page's tables. It knows the answers coded 1 or 0, and not the other categories, region by region.
+function hxAllEstimates(d) {
+  const waves = new Map(hxList(d.waves).map(w => [w.wave_key, w]));
+  const rows = new Map();
+  const row = (wave, unit) => {
+    const k = `${wave}|${unit || ""}`;
+    if (!rows.has(k)) rows.set(k, { segment_id: "all", wave_key: wave, unit_id: unit, reference_date: (waves.get(wave) || {}).date, n_total: 0, n_bin: 0, n_orig: 0, pro: 0, sources: new Set(), partial: true });
+    return rows.get(k);
+  };
+  for (const c of hxList(d.cells)) { const r = row(c.wave, c.unit); r.n_total += c.n; r.sources.add(c.source); }
+  for (const v of hxList(d.values)) { const r = row(v.wave, v.unit); r.n_bin += v.bin; r.pro += v.pro; r.n_orig += v.orig; }
+  return [...rows.values()].map(r => {
+    const p = r.n_bin > 0 ? r.pro / r.n_bin : null;
+    return { ...r, p_bin: p, se_bin: r.n_bin > 1 ? Math.sqrt(p * (1 - p) / (r.n_bin - 1)) : null, dist_all: JSON.stringify({ pro: r.pro, anti: r.n_bin - r.pro }), source_id: [...r.sources].sort().join(";"), flags: r.unit_id ? null : "unassignable" };
+  });
+}
 // The questions of a wave. One, unless its sources were asked through different variables (Cyprus's two communities).
 const hxWaveRows = (d, key) => hxList(d.waves).filter(w => w.wave_key === key);
 // Those a timeline's counts come from: its own questions.
@@ -40,7 +57,7 @@ function hxDataTable(items) {
       if (!merged.has(key)) merged.set(key, { ...r });
       const m = merged.get(key);
       for (const f of ["p_bin", "se_bin", "dist_orig", "dist_all", "source_id", "instrument_id", "flags"]) if (m[f] == null && r[f] != null) m[f] = r[f];
-      m[/-bin-/.test(r.segment_id) ? "n_bin" : "n_orig"] = r.n_substantive;
+      if (r.n_substantive != null) m[/-bin-/.test(r.segment_id) ? "n_bin" : "n_orig"] = r.n_substantive;
     }
     const here = [...merged.values()].sort((a, b) => order.get(a.wave_key) - order.get(b.wave_key) || String(a.unit_id || "~").localeCompare(String(b.unit_id || "~")));
     for (const r of here) {
@@ -54,16 +71,17 @@ function hxDataTable(items) {
         unit_id: r.unit_id, unit_name: r.unit_id ? (names.get(r.unit_id) || r.unit_id) : "Not coded",
         n_total: r.n_total, n_asked: r.n_asked, n_bin: r.n_bin, n_orig: r.n_orig, p_bin: r.p_bin, se_bin: r.se_bin,
       };
-      for (const c of HX_CATS) row[`n_${c}`] = all[c] || 0;
+      for (const c of HX_CATS) row[`n_${c}`] = r.partial ? (all[c] == null ? null : all[c]) : all[c] || 0;
       for (const k of Object.keys(orig)) { origKeys.add(k); row[`orig_${k}`] = orig[k]; }
       row.changes_at_wave = changes.get(r.wave_key);
       row.source_id = r.source_id;
       row.flags = r.flags;
+      if (r.partial) row.partial = true;
       rows.push(row);
     }
   }
   const orig = [...origKeys].sort((a, b) => Number(a) - Number(b)).map(k => `orig_${k}`);
-  for (const r of rows) for (const c of orig) if (r[c] == null && r.n_total) r[c] = 0;
+  for (const r of rows) for (const c of orig) if (r[c] == null && r.n_total && !r.partial) r[c] = 0;
   return {
     name: "data.csv",
     what: "Regional counts per wave, for each timeline you picked",
@@ -238,7 +256,7 @@ selection.json: what you picked.
 
 data.csv
 One row per timeline x wave x region.
-- timeline_id, geography: the timeline, and the level of geography it counts regions at.
+- timeline_id, geography: the timeline, and the level of geography it counts regions at. "all" is every observation of the question in the country, not harmonized across waves: there n_pro and n_anti are known region by region and the other categories are left empty (respondents.csv has them).
 - question: the harmonized question in that wave. file and file_variable: where it sits in the source data.
 - question_type: judgement (the respondent's own view, with a protectionist side), strength (how strongly; the direction is in the question before) or categorical (answers with no protectionist side). question_note: what to keep in mind about the question, such as "not own view".
 - reference_date, fieldwork_start, fieldwork_end: the date used for the wave, and its fieldwork.
@@ -343,9 +361,9 @@ async function hxBuildExport(picked, index, load, created) {
   const names = new Map(hxList(index.variables).map(v => [v.id, v.name]));
   const items = await Promise.all(picked.map(async p => {
     const [d, e, r] = await Promise.all([load(`${p.variable}_${p.country}`), load(`estimates/${p.variable}_${p.country}`), load(`rows/${p.variable}_${p.country}`)]);
-    const t = hxList(d.timelines).find(x => x.id === p.id);
+    const t = p.id === "all" ? hvAllTimeline(d) : hxList(d.timelines).find(x => x.id === p.id);
     if (!t) throw new Error(`Timeline not found: ${p.id}`);
-    return { ...p, name: names.get(p.variable) || p.variable, d, e, r, t };
+    return { ...p, name: names.get(p.variable) || p.variable, d, e: p.id === "all" ? { ...e, estimates: hxAllEstimates(d) } : e, r, t };
   }));
   const countries = [...new Set(items.map(i => i.country))].sort();
   const tables = [
@@ -420,7 +438,7 @@ function hxBody() {
   const regions = [...new Set(withData.map(hvCountryRegion))].sort((a, b) => String(a).localeCompare(String(b)));
   const country = iso => `<label class="hx-check"><input type="checkbox" data-hxiso="${esc(iso)}"${HX.isos.has(iso) ? " checked" : ""}> ${esc(hvCountryName(iso))} <span class="muted">${fmt(respondents(iso))}</span></label>`;
   return `<section class="card hx-step"><h3>1. Variables</h3>
-      <div class="hx-checks">${vars.map(v => `<label class="hx-check"><input type="checkbox" data-hxvar="${esc(v.id)}"${HX.vars.has(v.id) ? " checked" : ""}> ${esc(v.name)}</label>`).join("")}</div>
+      <div class="hx-vars">${hvConstructs().map(c => { const vs = vars.filter(v => v.construct === c.id).sort((a, b) => a.name.localeCompare(b.name)); return vs.length ? `<h4>${esc(c.name)} <span class="hv-tag">${vs.length}</span></h4><div class="hx-checks">${vs.map(v => `<label class="hx-check"><input type="checkbox" data-hxvar="${esc(v.id)}"${HX.vars.has(v.id) ? " checked" : ""}> ${esc(v.name)}</label>`).join("")}</div>` : ""; }).join("")}</div>
     </section>
     <section class="card hx-step"><div class="hx-head"><h3>2. Countries</h3><span class="hx-actions"><button type="button" class="btn small" data-hxdo="all-countries">All</button> <button type="button" class="btn small" data-hxdo="no-countries">None</button></span></div>
       <p class="muted">Countries with data for the variables above, with their respondents.</p>
