@@ -543,6 +543,14 @@ i.hv-a1 { background: var(--hv-a1); } i.hv-a2 { background: var(--hv-a2); } i.hv
 .hv-con a { color: var(--accent); font-size: 13px; }
 .hv-nowrap { white-space: nowrap; }
 .hv-avg-note { margin: 8px 0 0; font-size: 13px; color: var(--text-2); }
+/* A region's answers, wave by wave, beside the map. */
+.hv-ans-box { max-height: 360px; }
+.hv-ans th.hv-ans-wave { vertical-align: top; text-align: left; font-weight: 600; white-space: nowrap; }
+.hv-ans tbody + tbody tr:first-child > * { border-top: 2px solid var(--border); }
+.hv-ans tr.hv-zero td { color: var(--muted); }
+/* Reset buttons on the Timelines tab. */
+.ht-reset > div { display: flex; gap: 8px; flex-wrap: wrap; }
+.ht-reset .btn:disabled { opacity: .5; cursor: not-allowed; }
 /* Timelines on one axis. */
 .hv-dot, .hv-dot-key { background: var(--hv-p0); border-radius: 50%; }
 .hv-dot-key { width: 10px; height: 10px; }

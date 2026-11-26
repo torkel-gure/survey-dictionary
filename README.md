@@ -35,8 +35,9 @@ questions or distributions that no longer exist.
    question. A world map (Robinson projection) shows country by country where it exists; a click opens a world region, and
    there a country and its subnational regions, with respondents or simple averages on the map. A country page leads with its
    timelines on one axis from 1980 to 2025: every observation, and the harmonized timelines through them. Click a region to see
-   the source data behind it, then a source to see how its region codes were coded. Codes that could not be coded stay off the
-   map and are listed with their label. The **Timelines** tab lists every timeline, with downloads. The data
+   what its respondents answered, wave by wave, and the source data behind it, then a source to see how its region codes were coded. Codes that could not be coded stay off the
+   map and are listed with their label. The **Timelines** tab lists every timeline, with downloads; two buttons reset the
+   country and the questions to all. The data
    (`site/data/harmonized/`) come from the survey harmonization project and are uploaded by `deploy_data.ps1` when present.
 
 It is a static website: plain HTML/JS with pre-built, gzipped JSON data. There is no server

@@ -5,7 +5,8 @@
    A country page leads with its timelines on one axis, 1980 to 2025: every observation of the question, and every
    harmonized series through them, by which questions it joins and by geographic level. Maps show respondents or
    simple averages. The Timelines tab (harmonized_timelines.js) lists every timeline. Click a wave for its question and
-   how the answers were coded; click a region for the source data behind it, and a source for how its codes were coded.
+   how the answers were coded; click a region for what its respondents answered and the source data behind it, and a
+   source for how its codes were coded.
    Anything with no data is grey; darker blue means more respondents. Region codes that could not be coded stay off
    the map and are listed with their label from the file.
    Data: data/harmonized/ (aggregates from the survey harmonization project; rows/ holds each respondent's file, row, coded answer and region, and nothing else). */
@@ -84,9 +85,16 @@ const hvCellsInView = () => {
   const k = new Set(hvTlWaveKeys());
   return HV.d.cells.filter(c => k.has(c.wave) && (hvIsAll() || c.wave === HV.wave));
 };
-const hvSubsample = src => (HV.d.coding.find(c => c.source === src) || {}).subsample || "";
+// The first coding row and the first cell of each source, looked up once per page: a page can hold a quarter of a
+// million coding rows (every county of the United States).
+const HV_FIRST = new WeakMap();
+function hvFirstBySource(list) {
+  if (!HV_FIRST.has(list)) { const m = new Map(); for (const x of list) if (!m.has(x.source)) m.set(x.source, x); HV_FIRST.set(list, m); }
+  return HV_FIRST.get(list);
+}
+const hvSubsample = src => (hvFirstBySource(HV.d.coding).get(src) || {}).subsample || "";
 const hvSourceWave = src => {
-  const cell = HV.d.cells.find(c => c.source === src);
+  const cell = hvFirstBySource(HV.d.cells).get(src);
   return cell ? hvWave(cell.wave) : null;
 };
 const hvSourceLabel = src => {
@@ -460,7 +468,10 @@ function hvControls() {
       <select id="hvVar">${varOptions}</select></label>
     <label class="field"><span>Country</span>
       <select id="hvCountryPick"><option value="">${HV.level === "timelines" ? "All countries" : "Choose a country"}</option>${countryGroups}</select></label>
-    ${HV.level === "timelines" ? "" : `<nav class="hv-crumbs" aria-label="Where you are">${crumbs.join(` <span aria-hidden="true">›</span> `)}</nav>`}
+    ${HV.level === "timelines" ? `<div class="field ht-reset" role="group" aria-label="Reset the list"><span>Reset to all</span><div>
+      <button type="button" class="btn small" id="htClearCountry"${HV.iso ? "" : " disabled"}>Clear country</button>
+      <button type="button" class="btn small" id="htClearQuestions"${HV.sel === "all" ? " disabled" : ""}>Clear questions</button></div></div>`
+      : `<nav class="hv-crumbs" aria-label="Where you are">${crumbs.join(` <span aria-hidden="true">›</span> `)}</nav>`}
     ${HV.level === "region" || HV.level === "country" ? hvMeasureSwitch() : ""}
   </div>`;
 }
@@ -1036,6 +1047,57 @@ function hvRegionAverageNote(region) {
   return a && a.bin ? `<p>Simple average: <b>${hvPct(hvShare(a.pro, a.bin))}</b> protectionist, of ${fmt(a.bin)} answers coded 1 or 0.</p>` : "";
 }
 
+/* What a region's respondents answered, wave by wave (Torkel, 2026-11-26): counted from each respondent's coded answer
+   and region (rows/), against the answers the wave offered. Every answer offered is listed, also one nobody here gave. */
+const hvRowsKey = () => `${HV.varId}_${HV.iso}`;
+function hvRegionAnswers() {
+  const key = hvRowsKey();
+  if (HV.answerRows && HV.answerRows.key === key) return hvRegionAnswersTable(HV.answerRows.data);
+  const fill = html => { const box = document.getElementById("hvRegionAnswers"); if (box && HV.unit && hvRowsKey() === key) box.innerHTML = html; };
+  hvFile(`rows/${key}`).then(data => { HV.answerRows = { key, data }; fill(hvRegionAnswersTable(data)); })
+    .catch(e => { console.error(e); fill(`<p class="err">Could not load the answers (${esc(e.message)}).</p>`); });
+  return `<p class="loading">Loading the answers…</p>`;
+}
+const hvAnswerKey = (coded, bin, orig) => [coded, bin, orig].map(x => x == null ? "" : String(x)).join("|");
+function hvRegionAnswersTable(data) {
+  const keys = new Set(hvTlWaveKeys()), order = new Map(HV.d.waves.map((w, i) => [w.wave_key, i]));
+  const groups = new Map();
+  for (const b of hvList(data.blocks)) {
+    if (!keys.has(b.wave) || !(hvIsAll() || b.wave === HV.wave)) continue;
+    const gk = `${b.wave}|${b.var}`;
+    const g = groups.get(gk) || { wave: b.wave, var: b.var, n: 0, by: new Map() };
+    for (let i = 0; i < b.row.length; i++) {
+      if (!b.unit[i] || hvRegion(b.unit[i]) !== HV.unit) continue;
+      const k = hvAnswerKey(b.harm[i], b.bin[i], b.orig[i]);
+      g.by.set(k, (g.by.get(k) || 0) + 1);
+      g.n++;
+    }
+    groups.set(gk, g);
+  }
+  const list = [...groups.values()].filter(g => g.n).sort((a, b) => order.get(a.wave) - order.get(b.wave) || a.var.localeCompare(b.var));
+  if (!list.length) return `<p class="muted">No respondent here in this view.</p>`;
+  const varsOf = new Map();
+  for (const g of list) varsOf.set(g.wave, (varsOf.get(g.wave) || 0) + 1);
+  const body = list.map(g => {
+    // Answers that share a coding (none so far) are shown as one row.
+    const rows = new Map();
+    for (const a of hvList(HV.d.answers).filter(a => a.wave === g.wave && a.var === g.var)) {
+      const k = hvAnswerKey(a.coded, a.bin, a.orig), r = rows.get(k);
+      if (r) r.answers.push(a); else rows.set(k, { coded: a.coded, answers: [a] });
+    }
+    for (const k of g.by.keys()) if (!rows.has(k)) rows.set(k, { coded: k.split("|")[0], answers: [] });
+    const w = hvWave(g.wave);
+    const head = `${esc(hvYear(w))}<br><span class="muted">${esc(hvWaveLabel(w))}</span>${varsOf.get(g.wave) > 1 ? `<br><code>${esc(g.var)}</code>` : ""}<br><span class="muted">${fmt(g.n)} respondents</span>`;
+    return `<tbody>${[...rows.entries()].map(([k, r], i) => {
+      const n = g.by.get(k) || 0;
+      const answer = r.answers.length ? r.answers.map(a => `${esc(a.code)} ${hvLabel(a.label)}`).join("; ") : `<span class="muted">no answer code in the file</span>`;
+      return `<tr${n ? "" : ` class="hv-zero"`}>${i === 0 ? `<th scope="rowgroup" rowspan="${rows.size}" class="hv-ans-wave">${head}</th>` : ""}<td>${answer}</td><td>${esc(HV_CODED[r.coded] || r.coded)}</td><td class="num">${fmt(n)}</td><td class="num">${hvPct(100 * n / g.n)}</td></tr>`;
+    }).join("")}</tbody>`;
+  }).join("");
+  return `<p class="muted">Respondents here by answer, with their share of this region's respondents in the wave. Every answer the wave offered is listed.</p>
+    <div class="hv-scroll hv-ans-box"><table class="occ hv-ans"><thead><tr><th>Wave</th><th>Answer in the file</th><th>Coded as</th><th class="num">Respondents</th><th class="num">Share</th></tr></thead>${body}</table></div>`;
+}
+
 function hvRegionPanel(totals) {
   const cells = hvCellsInView().filter(c => c.unit && hvRegion(c.unit) === HV.unit);
   const waves = new Set(cells.map(c => c.wave));
@@ -1046,6 +1108,9 @@ function hvRegionPanel(totals) {
     <p><b>${fmt(totals.get(HV.unit))}</b> respondents in ${waves.size} ${waves.size === 1 ? "wave" : "waves"}.${parts.length ? ` <span class="muted">Coded as ${esc(parts.map(hvName).join(", "))}${cells.some(c => c.unit === HV.unit) ? " in some waves" : ""}.</span>` : ""}</p>
     ${hvHasAverage() ? hvRegionAverageNote(HV.unit) : ""}
     ${hvPartlyNote(HV.unit)}
+    <h4>What its respondents answered</h4>
+    <div id="hvRegionAnswers">${hvRegionAnswers()}</div>
+    <h4>Where its respondents come from</h4>
     <p class="muted">Click a source to see how its regions were coded.</p>
     <div class="hv-scroll"><table class="occ"><thead><tr><th>Year</th><th>Source</th><th>Region variable</th><th>Code</th><th>Label in the file</th>${parts.length ? "<th>Coded as</th>" : ""}<th class="num">Respondents</th></tr></thead>
     <tbody>${rows.map(c => `<tr class="row" data-src="${esc(c.source)}" tabindex="0"><td>${esc(hvYear(hvWave(c.wave)))}</td><td>${esc(hvSourceLabel(c.source))}</td>

@@ -131,7 +131,7 @@ function htBar() {
     <label class="field"><span>Separator</span><select id="htSep"><option value=","${HT.sep === "," ? " selected" : ""}>Comma</option><option value=";"${HT.sep === ";" ? " selected" : ""}>Semicolon, for Excel in Europe</option></select></label>
     <button type="button" class="btn primary" id="htDownload"${!n || much || HT.busy ? " disabled" : ""}>${HT.busy ? "Preparing…" : "Download ticked (ZIP)"}</button>
     <button type="button" class="btn" id="htList">Download this list (CSV)</button>
-    <button type="button" class="btn" id="htClear"${n ? "" : " disabled"}>Clear</button></div>`;
+    <button type="button" class="btn" id="htClear"${n ? "" : " disabled"}>Clear ticks</button></div>`;
 }
 
 // Ticks follow what is picked: a row is ticked with all its timelines, half with some.
@@ -174,6 +174,9 @@ function htOnToggle(el) {
   if (c) (el.open ? HT.folded.delete(c) : HT.folded.add(c));
 }
 function htOnClick(target) {
+  // Back to all countries, or to all questions; the ticks stay.
+  if (target.closest("#htClearCountry")) { HV.refocus = "#hvCountryPick"; location.hash = hvHref({ tab: "timelines" }).slice(1); return true; }
+  if (target.closest("#htClearQuestions")) { HV.refocus = "#hvVar"; location.hash = hvHref({ tab: "timelines", ...(HV.iso ? { c: HV.iso } : {}) }, "all").slice(1); return true; }
   if (target.closest("#htClear")) { HT.picked.clear(); HT.message = ""; htMarkTicks(); return true; }
   if (target.closest("#htList")) { htSave(`harmonized_timelines_${hxToday()}.csv`, new Blob(["﻿" + hxCsv(htListTable(), HT.sep)], { type: "text/csv;charset=utf-8" })); return true; }
   if (target.closest("#htDownload")) { htDownload(); return true; }
