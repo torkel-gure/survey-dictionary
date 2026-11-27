@@ -528,6 +528,15 @@ html.gate-locked body > *:not(.gate) { display: none !important; }
 path.hv-a1 { fill: var(--hv-a1); } path.hv-a2 { fill: var(--hv-a2); } path.hv-a3 { fill: var(--hv-a3); } path.hv-a4 { fill: var(--hv-a4); } path.hv-a5 { fill: var(--hv-a5); }
 path.hv-r.hv-no { fill: var(--hv-none); }
 i.hv-a1 { background: var(--hv-a1); } i.hv-a2 { background: var(--hv-a2); } i.hv-a3 { background: var(--hv-a3); } i.hv-a4 { background: var(--hv-a4); } i.hv-a5 { background: var(--hv-a5); }
+/* The averages' legend: one continuous bar from 0 to 100 percent, labeled every 25 points. */
+.hv-grad { display: inline-flex; flex-direction: column; gap: 2px; width: 200px; max-width: 60vw; }
+.hv-grad-bar { display: block; height: 10px; border-radius: 3px;
+  background: linear-gradient(to right, var(--hv-a1), var(--hv-a2), var(--hv-a3), var(--hv-a4), var(--hv-a5));
+  background: linear-gradient(in oklab to right, var(--hv-a1), var(--hv-a2), var(--hv-a3), var(--hv-a4), var(--hv-a5)); }
+.hv-grad-ticks { position: relative; display: block; height: 14px; font-size: 11px; line-height: 14px; font-variant-numeric: tabular-nums; }
+.hv-grad-ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+.hv-grad-ticks span:first-child { transform: none; }
+.hv-grad-ticks span:last-child { transform: translateX(-100%); }
 .hv-sea { fill: var(--hv-sea); }
 .hv-grat { fill: none; stroke: var(--hv-grat); stroke-width: .6; vector-effect: non-scaling-stroke; }
 .hv-map-world svg { height: auto; max-height: min(70vh, 660px); }

@@ -33,7 +33,8 @@ questions or distributions that no longer exist.
 
 6. follow the coding (**Harmonized variables** tab). What is selected leads the view: all questions, one construct or one
    question. A world map (Robinson projection) shows country by country where it exists; a click opens a world region, and
-   there a country and its subnational regions, with respondents or simple averages on the map. A country page leads with its
+   there a country and its subnational regions, with respondents or simple averages on the map (averages on one color scale
+   from 0 to 100 percent, the same everywhere). A country page leads with its
    timelines on one axis from 1980 to 2025: every observation, and the harmonized timelines through them. Click a region to see
    what its respondents answered, wave by wave, and the source data behind it, then a source to see how its region codes were coded. Codes that could not be coded stay off the
    map and are listed with their label. The **Timelines** tab lists every timeline, with downloads; two buttons reset the

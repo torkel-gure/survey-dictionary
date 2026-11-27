@@ -235,18 +235,14 @@ const hvClassIndex = (n, breaks) => { const i = breaks.findIndex(b => n <= b); r
 const hvClass = (i, count) => count <= 1 ? 3 : 1 + Math.round(i * 4 / (count - 1));
 const hvScaleOf = values => ({ breaks: hvBreaks(values), max: Math.max(0, ...values) });
 const hvClassOf = (n, sc) => hvClass(hvClassIndex(n, sc.breaks), sc.breaks.length + 1);
-// Shares in percent, in equal steps of 5 to 25 points, with a color of their own. Few steps stay close in color, so a small
-// difference doesn't look like a large one.
-function hvShareScale(values) {
-  const v = values.filter(x => x != null).map(Math.round);
-  if (!v.length) return { share: true, step: 20, first: 0, count: 0 };
-  const lo = Math.min(...v), hi = Math.min(99, Math.max(...v));
-  const step = [5, 10, 15, 20].find(w => Math.floor(hi / w) - Math.floor(lo / w) < 5) || 25;
-  return { share: true, step, first: Math.floor(Math.min(99, lo) / step), count: Math.floor(hi / step) - Math.floor(Math.min(99, lo) / step) + 1 };
+// Averages in percent on one continuous scale from 0 to 100, the same in every wave, timeline, country and region
+// (Torkel, 2026-11-27). The color blends the two nearest of the ramp's five steps; the class of the nearest step stays
+// as the color where a browser has no color-mix. No average is drawn grey.
+function hvSharePaint(x) {
+  if (x == null) return { cls: "hv-no", style: "" };
+  const s = Math.max(0, Math.min(100, x)) / 25, i = Math.min(3, Math.floor(s)), f = Math.round((s - i) * 100);
+  return { cls: `hv-a${Math.round(s) + 1}`, style: ` style="fill: color-mix(in oklab, var(--hv-a${i + 2}) ${f}%, var(--hv-a${i + 1}))"` };
 }
-const HV_SHARE_COLORS = { 1: [3], 2: [2, 4], 3: [2, 3, 4], 4: [1, 2, 4, 5], 5: [1, 2, 3, 4, 5] };
-const hvShareColor = (i, count) => (HV_SHARE_COLORS[count] || HV_SHARE_COLORS[5])[Math.max(0, Math.min(i, count - 1))];
-const hvShareClass = (x, sc) => x == null ? "hv-no" : `hv-a${hvShareColor(Math.floor(Math.min(99, Math.round(x)) / sc.step) - sc.first, sc.count)}`;
 
 function hvTotals(cells) {
   const m = new Map();
@@ -586,15 +582,15 @@ function hvWorldBody() {
   const shown = [...byIso.values()].filter(s => !inRegionView || hvCountryRegion(s.iso3) === HV.region);
   const avg = inRegionView && hvAverage();
   const value = s => avg ? s.avg : HV.varId ? (inRegionView ? s.n : s.waves) : s.q;
-  const sc = avg ? hvShareScale(shown.map(value)) : hvScaleOf(shown.map(value));
+  const sc = avg ? null : hvScaleOf(shown.map(value));
   const unitName = avg ? "Average" : HV.varId ? (inRegionView ? "Respondents" : "Waves") : "Questions";
-  const cls = s => avg ? hvShareClass(s.avg, sc) : `hv-c${hvClassOf(value(s), sc)}`;
+  const paint = s => avg ? hvSharePaint(s.avg) : { cls: `hv-c${hvClassOf(value(s), sc)}`, style: "" };
   const label = s => avg ? `${hvPct(s.avg)} protectionist` : HV.varId ? (inRegionView ? `${fmt(s.n)} respondents` : `${hvWavesText(s.waves)}, ${hvYearsText(s)}`) : hvQuestionsText(s.q);
   const paths = HV.world.countries.map(c => {
-    const name = esc(c.name), s = byIso.get(c.iso3), d = hvWorldPath(c, lon0);
-    if (!inRegionView) return `<path class="hv-w ${s ? cls(s) : "hv-no"}" data-region="${esc(c.region)}" data-iso="${esc(c.iso3)}" data-name="${name}" d="${d}"></path>`;
+    const name = esc(c.name), s = byIso.get(c.iso3), d = hvWorldPath(c, lon0), p = s ? paint(s) : { cls: "hv-no", style: "" };
+    if (!inRegionView) return `<path class="hv-w ${p.cls}"${p.style} data-region="${esc(c.region)}" data-iso="${esc(c.iso3)}" data-name="${name}" d="${d}"></path>`;
     const inside = c.region === HV.region;
-    if (s && inside) return `<path class="hv-w hv-go ${cls(s)}" data-country="${esc(c.iso3)}" data-name="${name}" d="${d}" tabindex="0" role="link" aria-label="${name}: ${esc(label(s))}"></path>`;
+    if (s && inside) return `<path class="hv-w hv-go ${p.cls}"${p.style} data-country="${esc(c.iso3)}" data-name="${name}" d="${d}" tabindex="0" role="link" aria-label="${name}: ${esc(label(s))}"></path>`;
     return `<path class="hv-w hv-no${inside ? "" : " hv-out"}" data-name="${name}" d="${d}"></path>`;
   }).join("");
   const title = inRegionView ? `${HV.region}: click a country` : "World: click a region";
@@ -606,7 +602,7 @@ function hvWorldBody() {
     <figure class="card hv-map hv-map-world">
       <figcaption><b>${esc(title)}</b><br><span class="muted">${esc(sub)}</span></figcaption>
       <svg viewBox="${hvFrame(view, lon0)}" role="group" aria-label="${esc(title)}">${inRegionView ? "" : hvGlobe()}<g>${paths}</g></svg>
-      ${avg ? hvShareLegend(sc) : hvLegend(sc, "Not asked", unitName)}
+      ${avg ? hvShareLegend() : hvLegend(sc, "Not asked", unitName)}
       ${hvWorldCredit()}
     </figure>
     <aside class="card hv-panel">${inRegionView ? hvCountryList(byIso) : hvRegionList(regionSum)}</aside>
@@ -831,12 +827,12 @@ function hvMap(totals) {
   }
   const avg = hvAverage(), means = avg ? hvAverages(hvValuesInView()) : new Map();
   const share = id => { const a = means.get(id); return a ? hvShare(a.pro, a.bin) : null; };
-  const sc = avg ? hvShareScale([...totals.keys()].map(share)) : hvIsAll() ? HV.scale.all : HV.scale.wave;
-  const fill = r => avg ? hvShareClass(share(r.id), sc) : `hv-c${hvClassOf(r.n, sc)}`;
+  const sc = avg ? null : hvIsAll() ? HV.scale.all : HV.scale.wave;
+  const paint = r => avg ? hvSharePaint(share(r.id)) : { cls: `hv-c${hvClassOf(r.n, sc)}`, style: "" };
   const regions = [...totals.keys()].map(id => ({ id, n: totals.get(id), d: shapes.paths[id] })).filter(r => r.d);
   // The selected region is drawn last, so its outline sits on top of its neighbours.
   regions.sort((a, b) => (a.id === HV.unit) - (b.id === HV.unit));
-  const paths = regions.map(r => `<path class="hv-r ${fill(r)}${r.id === HV.unit ? " sel" : ""}" data-unit="${esc(r.id)}" d="${r.d}" tabindex="0" role="button"
+  const paths = regions.map(r => `<path class="hv-r ${paint(r).cls}${r.id === HV.unit ? " sel" : ""}"${paint(r).style} data-unit="${esc(r.id)}" d="${r.d}" tabindex="0" role="button"
       aria-pressed="${r.id === HV.unit}" aria-label="${esc(hvName(r.id))}: ${avg ? `${hvPct(share(r.id))} protectionist, ` : ""}${fmt(r.n)} respondents"></path>`).join("");
   const onMap = regions.reduce((a, r) => a + r.n, 0);
   // Regions no source gives a boundary for stay off the map and in the table below.
@@ -859,18 +855,14 @@ function hvMap(totals) {
       ${frames}
       ${paths}
     </svg>
-    ${avg ? `<p class="hv-avg-note">Simple average: the share of answers coded protectionist (1) among those coded 1 or 0, unweighted. The whole country: <b>${hvPct(hvShare(national.pro, national.bin))}</b> of ${fmt(national.bin)} answers.</p>${hvShareLegend(sc)}` : hvLegend(sc, "No data")}
+    ${avg ? `<p class="hv-avg-note">Simple average: the share of answers coded protectionist (1) among those coded 1 or 0, unweighted. The whole country: <b>${hvPct(hvShare(national.pro, national.bin))}</b> of ${fmt(national.bin)} answers.</p>${hvShareLegend()}` : hvLegend(sc, "No data")}
     ${hvCredit()}
   </figure>`;
 }
-// The legend of averages.
-function hvShareLegend(sc) {
-  const items = [];
-  for (let i = 0; i < sc.count; i++) {
-    const a = (sc.first + i) * sc.step, b = a + sc.step;
-    items.push(`<span class="hv-key"><i class="hv-sw hv-a${hvShareColor(i, sc.count)}"></i>${a}–${b >= 100 ? 100 : b - 1}%</span>`);
-  }
-  return `<div class="hv-legend" aria-label="Legend: average"><span class="hv-legend-title">Protectionist</span>${items.join("")}<span class="hv-key"><i class="hv-sw hv-none"></i>No answers coded 1 or 0</span></div>`;
+// The legend of averages: one bar from 0 to 100 percent, the same on every map.
+function hvShareLegend() {
+  const ticks = [0, 25, 50, 75, 100].map(p => `<span style="left: ${p}%">${p}%</span>`).join("");
+  return `<div class="hv-legend" aria-label="Legend: average, from 0 to 100 percent protectionist"><span class="hv-legend-title">Protectionist</span><span class="hv-grad" aria-hidden="true"><span class="hv-grad-bar"></span><span class="hv-grad-ticks">${ticks}</span></span><span class="hv-key"><i class="hv-sw hv-none"></i>No answers coded 1 or 0</span></div>`;
 }
 
 function hvLegend(sc, none, title = "Respondents") {
